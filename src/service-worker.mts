@@ -16,6 +16,14 @@ export class WebmunkChatGPTSpider extends WebmunkSpider {
   fetchInitialUrls(): string[] {
     return ['https://chatgpt.com/']
   }
+
+  checkNeedsUpdate(): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      // TODO - more advanced checking for actual changes...
+
+      resolve(true)
+    })
+  }
 }
 
 const stringToId = function (str:string) {
