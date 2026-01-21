@@ -61,21 +61,23 @@ export class WebmunkChatGPTContentSpider extends WebmunkContentSpider {
         console.log(`${this.name()}: Looking for links...`)
         let urls = []
 
-        $('div#history a').each((index, item) => {
-          const href = $(item).attr('href')
+        window.setTimeout(() => {
+          $('div#history a').each((index, item) => {
+            const href = $(item).attr('href')
 
-          console.log(`${this.name()}: checking ${href}...`)
+            console.log(`${this.name()}: checking ${href}...`)
 
-          if (href.startsWith('/c/')) {
-            urls.push(`https://chatgpt.com${href}`)
-          }
-        })
+            if (href.startsWith('/c/')) {
+              urls.push(`https://chatgpt.com${href}`)
+            }
+          })
 
-        chrome.runtime.sendMessage({
-          messageType: 'spiderSources',
-          spiderName: this.name(),
-          urls
-        })
+          chrome.runtime.sendMessage({
+            messageType: 'spiderSources',
+            spiderName: this.name(),
+            urls
+          })
+        }, 1000)
 
         return
       }
