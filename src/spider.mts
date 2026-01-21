@@ -61,6 +61,8 @@ export class WebmunkChatGPTContentSpider extends WebmunkContentSpider {
         console.log(`${this.name()}: Looking for links...`)
         let urls = []
 
+        $('button[data-testid="open-sidebar-button"]').trigger('click')
+
         window.setTimeout(() => {
           $('a').each((index, item) => {
             const href = $(item).attr('href')
@@ -77,7 +79,7 @@ export class WebmunkChatGPTContentSpider extends WebmunkContentSpider {
             spiderName: this.name(),
             urls
           })
-        }, 1000)
+        }, 2000)
 
         return
       }
