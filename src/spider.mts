@@ -58,10 +58,13 @@ export class WebmunkChatGPTContentSpider extends WebmunkContentSpider {
         }
         return
       } else if (window.location.href.toLowerCase() === 'https://chatgpt.com/') {
+        console.log(`${this.name()}: Looking for links...`)
         let urls = []
 
         $('div#history a').each((index, item) => {
           const href = $(item).attr('href')
+
+          console.log(`${this.name()}: checking ${href}...`)
 
           if (href.startsWith('/c/')) {
             urls.push(`https://chatgpt.com${href}`)
