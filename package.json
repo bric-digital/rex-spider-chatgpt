@@ -1,21 +1,21 @@
 {
-    "name": "@bric/webmunk-spider-chatgpt",
+    "name": "@bric/rex-spider-chatgpt",
     "version": "0.0.1",
-    "description": "ChatGPT plugin for Webmunk spider module.",
+    "description": "ChatGPT plugin for REX spider module.",
     "keywords": [
         "extension",
-        "webmunk"
+        "rex"
     ],
     "author": "Behavioral Research Innovation Center",
     "type": "module",
     "main": "index.mts",
-    "homepage": "https://github.com/bric-digital/webmunk-spider-chatgpt",
+    "homepage": "https://github.com/bric-digital/rex-spider-chatgpt",
     "bugs": {
-        "url": "https://github.com/bric-digital/webmunk-spider-chatgpt/issues"
+        "url": "https://github.com/bric-digital/rex-spider-chatgpt/issues"
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/bric-digital/webmunk-spider-chatgpt.git"
+        "url": "git+https://github.com/bric-digital/rex-spider-chatgpt.git"
     },
     "exports": {
         "./extension": "./src/extension.mts",
@@ -47,8 +47,8 @@
         "typescript-eslint": "^8.46.3"
     },
     "dependencies": {
-        "@bric/webmunk-core": "github:bric-digital/webmunk-core",
-        "@bric/webmunk-spider": "github:bric-digital/webmunk-spider",
+        "@bric/rex-core": "github:bric-digital/rex-core",
+        "@bric/rex-spider": "github:bric-digital/rex-spider",
         "jquery": "^3.7.1"
     }
 }

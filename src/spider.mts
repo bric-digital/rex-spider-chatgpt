@@ -1,10 +1,10 @@
 import $ from 'jquery'
 
-import webmunkSpiderManager, { WebmunkContentSpider } from '@bric/webmunk-spider/spider'
+import rexSpiderManager, { REXContentSpider } from '@bric/rex-spider/spider'
 
-export class WebmunkChatGPTContentSpider extends WebmunkContentSpider {
+export class REXChatGPTContentSpider extends REXContentSpider {
   toString():string {
-    return 'WebmunkChatGPTContentSpider'
+    return 'REXChatGPTContentSpider'
   }
 
   name():string {
@@ -129,7 +129,7 @@ export class WebmunkChatGPTContentSpider extends WebmunkContentSpider {
   }
 }
 
-const spider = new WebmunkChatGPTContentSpider()
-webmunkSpiderManager.registerSpider(spider)
+const spider = new REXChatGPTContentSpider()
+rexSpiderManager.registerSpider(spider)
 
 export default spider

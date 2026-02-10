@@ -1,6 +1,6 @@
-import webmunkSpiderPlugin, { WebmunkSpider } from '@bric/webmunk-spider/service-worker'
+import rexSpiderPlugin, { REXSpider } from '@bric/rex-spider/service-worker'
 
-export class WebmunkChatGPTSpider extends WebmunkSpider {
+export class REXChatGPTSpider extends REXSpider {
   fetchUrls(): string[] {
     return ['https://chatgpt.com/']
   }
@@ -87,8 +87,8 @@ chrome.declarativeNetRequest.onRuleMatchedDebug.addListener(function (matchedRul
   console.log('[SPIDER CHAT GPT] rule matched:', matchedRule);
 });
 
-const chatGPTSpider = new WebmunkChatGPTSpider()
+const chatGPTSpider = new REXChatGPTSpider()
 
-webmunkSpiderPlugin.registerSpider(chatGPTSpider)
+rexSpiderPlugin.registerSpider(chatGPTSpider)
 
 export default chatGPTSpider
