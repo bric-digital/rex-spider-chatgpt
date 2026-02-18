@@ -171,26 +171,17 @@ export class REXChatGPTSpider extends REXSpider {
                                     .then((convoResponse: Response) => {
                                       if (convoResponse.ok) {
                                         convoResponse.json().then((result) => {
-                                          if (result.status === 'success') {
-                                            this.parseConversation(result).then((payload) => {
-                                              console.log(`[rex-spider-chatgpt] log:`)
-                                              console.log(payload)
+                                          this.parseConversation(result).then((payload) => {
+                                            console.log(`[rex-spider-chatgpt] log:`)
+                                            console.log(payload)
 
-                                              if (payload !== null) {
+                                            if (payload !== null) {
 
-                                                dispatchEvent(payload)
-                                              }
+                                              dispatchEvent(payload)
+                                            }
 
-                                              fetchConvo()
-                                            })
-                                          } else {
-                                            console.log(`[rex-spider-chatgpt] Crawl failed ${nextUrl}. Content:`)
-                                            console.log(convoResponse)
-
-                                            this.syncing = false
-
-                                            resolve(true) // Error - fall back to DOM scraping...
-                                          }
+                                            fetchConvo()
+                                          })
                                         })
                                       } else {
                                         console.log(`[rex-spider-chatgpt] Crawl failed ${nextUrl}. Response:`)
