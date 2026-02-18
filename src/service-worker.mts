@@ -113,7 +113,6 @@ export class REXChatGPTSpider extends REXSpider {
                         const tokens = prefixStripped.split('"')
 
                         if (tokens.length > 3) {
-                          console.log(`[rex-spider-chatgpt] Setting ${tokens[3]} as the access token.`)
                           this.accessToken = tokens[3]
                         }
                       }
@@ -141,8 +140,8 @@ export class REXChatGPTSpider extends REXSpider {
 
                             for (const convo of convoList.items) {
                               if (convo.id !== undefined) {
-                                const fullUrl = `https://chatgpt.com/backend-api/conversation/${convo.id}
-    `
+                                const fullUrl = `https://chatgpt.com/backend-api/conversation/${convo.id}`
+
                                 if (toCrawl.includes(fullUrl) === false) {
                                   toCrawl.push(fullUrl)
                                 }
@@ -163,15 +162,21 @@ export class REXChatGPTSpider extends REXSpider {
 
                                   console.log(`[rex-spider-chatgpt] Crawl: ${nextUrl}`)
 
-                                  fetch(nextUrl)
+                                  fetch(nextUrl, {
+                                    method: 'GET',
+                                    headers: {
+                                      'Authorization': `Bearer ${this.accessToken}`
+                                    }
+                                  })
                                     .then((convoResponse: Response) => {
                                       if (convoResponse.ok) {
                                         convoResponse.json().then((result) => {
                                           if (result.status === 'success') {
                                             this.parseConversation(result).then((payload) => {
+                                              console.log(`[rex-spider-chatgpt] log:`)
+                                              console.log(payload)
+
                                               if (payload !== null) {
-                                                console.log(`[rex-spider-chatgpt] log:`)
-                                                console.log(payload)
 
                                                 dispatchEvent(payload)
                                               }
