@@ -39,8 +39,7 @@ export class REXChatGPTSpider extends REXSpider {
 
               for (const line of lines) {
                 if (line.includes('"accessToken"')) {
-                  console.log(`[rex-spider-chatgpt] accessToken line!`)
-                  console.log(line)
+                  console.log(`[rex-spider-chatgpt] accessToken present.`)
 
                   resolve(true)
                 }
@@ -104,8 +103,7 @@ export class REXChatGPTSpider extends REXSpider {
 
                   for (const line of lines) {
                     if (line.includes('"accessToken"')) {
-                      console.log(`[rex-spider-chatgpt] accessToken line!`)
-                      console.log(line)
+                      console.log(`[rex-spider-chatgpt] accessToken present.`)
 
                       const startIndex = line.indexOf('"accessToken":"')
 
@@ -114,98 +112,104 @@ export class REXChatGPTSpider extends REXSpider {
 
                         const tokens = prefixStripped.split('"')
 
-                        console.log(`[rex-spider-chatgpt] TOKENS!`)
-                        console.log(tokens)
-
                         if (tokens.length > 3) {
+                          console.log(`[rex-spider-chatgpt] Setting ${tokens[3]} as the access token.`)
                           this.accessToken = tokens[3]
                         }
                       }
                     }
                   }
-                })
-              }
 
-              if (this.accessToken !== null) {
-                console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
+                  if (this.accessToken !== null) {
+                    console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
 
-                const indexUrl = 'https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false'
+                    const indexUrl = 'https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false'
 
-                fetch(indexUrl, {
-                  method: 'GET',
-                  headers: {
-                    'Authorization': `Bearer ${this.accessToken}`
-                  }
-                })
-                  .then((response: Response) => {
-                    if (response.ok) {
-                      const toCrawl = []
+                    fetch(indexUrl, {
+                      method: 'GET',
+                      headers: {
+                        'Authorization': `Bearer ${this.accessToken}`
+                      }
+                    })
+                      .then((response: Response) => {
+                        if (response.ok) {
+                          const toCrawl = []
 
-                      response.json().then((convoList) => {
-                        console.log(`[rex-spider-chatgpt] Index content:`)
-                        console.log(convoList)
+                          response.json().then((convoList) => {
+                            console.log(`[rex-spider-chatgpt] Index content:`)
+                            console.log(convoList)
 
-                        for (const convo of convoList.items) {
-                          if (convo.id !== undefined) {
-                            const fullUrl = `https://chatgpt.com/backend-api/conversation/${convo.id}
-`
-                            if (toCrawl.includes(fullUrl) === false) {
-                              toCrawl.push(fullUrl)
+                            for (const convo of convoList.items) {
+                              if (convo.id !== undefined) {
+                                const fullUrl = `https://chatgpt.com/backend-api/conversation/${convo.id}
+    `
+                                if (toCrawl.includes(fullUrl) === false) {
+                                  toCrawl.push(fullUrl)
+                                }
+                              }
                             }
-                          }
-                        }
 
-                        console.log(`[rex-spider-chatgpt] Crawl list:`)
-                        console.log(toCrawl)
+                            console.log(`[rex-spider-chatgpt] Crawl list:`)
+                            console.log(toCrawl)
 
-                        const fetchConvo = () => {
-                          if (toCrawl.length == 0) {
-                            resolve(false)
-                          } else {
-                            self.setTimeout(() => {
-                              const nextUrl = toCrawl.shift()
+                            const fetchConvo = () => {
+                              if (toCrawl.length == 0) {
+                                this.syncing = false
 
-                              console.log(`[rex-spider-chatgpt] Crawl: ${nextUrl}`)
+                                resolve(false)
+                              } else {
+                                self.setTimeout(() => {
+                                  const nextUrl = toCrawl.shift()
 
-                              fetch(nextUrl)
-                                .then((convoResponse: Response) => {
-                                  if (convoResponse.ok) {
-                                    convoResponse.json().then((result) => {
-                                      if (result.status === 'success') {
-                                        this.parseConversation(result).then((payload) => {
-                                          if (payload !== null) {
-                                            console.log(`[rex-spider-chatgpt] log:`)
-                                            console.log(payload)
+                                  console.log(`[rex-spider-chatgpt] Crawl: ${nextUrl}`)
 
-                                            dispatchEvent(payload)
+                                  fetch(nextUrl)
+                                    .then((convoResponse: Response) => {
+                                      if (convoResponse.ok) {
+                                        convoResponse.json().then((result) => {
+                                          if (result.status === 'success') {
+                                            this.parseConversation(result).then((payload) => {
+                                              if (payload !== null) {
+                                                console.log(`[rex-spider-chatgpt] log:`)
+                                                console.log(payload)
+
+                                                dispatchEvent(payload)
+                                              }
+
+                                              fetchConvo()
+                                            })
+                                          } else {
+                                            console.log(`[rex-spider-chatgpt] Crawl failed ${nextUrl}. Content:`)
+                                            console.log(convoResponse)
+
+                                            this.syncing = false
+
+                                            resolve(true) // Error - fall back to DOM scraping...
                                           }
-
-                                          fetchConvo()
                                         })
                                       } else {
-                                        console.log(`[rex-spider-chatgpt] Crawl failed ${nextUrl}. Content:`)
+                                        console.log(`[rex-spider-chatgpt] Crawl failed ${nextUrl}. Response:`)
                                         console.log(convoResponse)
+
+                                        this.syncing = false
 
                                         resolve(true) // Error - fall back to DOM scraping...
                                       }
                                     })
-                                  } else {
-                                    console.log(`[rex-spider-chatgpt] Crawl failed ${nextUrl}. Response:`)
-                                    console.log(convoResponse)
+                                }, this.sleepDelayMs)
+                              }
+                            }
 
-                                    resolve(true) // Error - fall back to DOM scraping...
-                                  }
-                                })
-                            }, this.sleepDelayMs)
-                          }
+                            fetchConvo()
+                          })
+                        } else {
+                          this.syncing = false
+
+                          resolve(true) // Error - fall back to DOM scraping...
                         }
-
-                        fetchConvo()
                       })
-                    } else {
-                      resolve(true) // Error - fall back to DOM scraping...
-                    }
-                  })
+                  }
+                })
               }
             })
         })
