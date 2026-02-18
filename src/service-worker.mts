@@ -240,78 +240,81 @@ export class REXChatGPTSpider extends REXSpider {
 
         const turnJson = conversationJson['mapping'][convoId]
 
-        let createTime = firstWhenString
+        if (turnJson !== undefined) {
+          let createTime = firstWhenString
 
-        if (turnJson.message !== null) {
-          if (turnJson['create_time'] !== null) {
-            createTime = new DateString(`${turnJson['create_time'] * 1000}`)
-          }
-
-          const turn:Turn = {
-            speaker: turnJson.message.author.role,
-            when: createTime,
-            identifier: turnJson.message.id,
-            'content*': null,
-            'metadata*': turnJson,
-            'parent': turnJson.parent,
-          }
-
-          if (turnJson.message.content.parts !== undefined) {
-            turn['content*'] = turnJson.message.content.parts.join('\n')
-          } else if (turnJson.message.content.text !== undefined) {
-            turn['content*'] = turnJson.message.content.text
-          }
-
-          if (turnJson.metadata !== undefined) {
-            if (turnJson.metadata['search_result_groups'] !== undefined) {
-              const search:Search = {
-                  platform: 'chatgpt',
-                  'query*': '?',
-                  type: 'web',
-                  results: []
-              }
-
-              for (const searchGroup of turnJson.metadata['search_result_groups']) {
-                for (const entry in searchGroup.entries) {
-                  search.results.push({
-                    title: entry['title'],
-                    url: entry['url'],
-                    preview: entry['snippet'],
-                    index: entry['ref_id']['ref_index'],
-                    metadata: entry,
-                  })
-                }
-              }
-
-              turn.search = search
+          if (turnJson.message !== null) {
+            if (turnJson['create_time'] !== null) {
+              createTime = new DateString(`${turnJson['create_time'] * 1000}`)
             }
 
-            if (turnJson.metadata['content_references'] !== undefined) {
-              turn.citations = []
+            const turn:Turn = {
+              speaker: turnJson.message.author.role,
+              when: createTime,
+              identifier: turnJson.message.id,
+              'content*': null,
+              'metadata*': turnJson,
+              'parent': turnJson.parent,
+            }
 
-              for (const contentReference of turnJson.metadata['content_references']) {
-                for (const item of contentReference['items']) {
-                  const citation:Citation = {
-                    title: item.title,
-                    url: item.url,
-                    source: item.attribution
+            if (turnJson.message.content.parts !== undefined) {
+              turn['content*'] = turnJson.message.content.parts.join('\n')
+            } else if (turnJson.message.content.text !== undefined) {
+              turn['content*'] = turnJson.message.content.text
+            }
+
+            if (turnJson.metadata !== undefined) {
+              if (turnJson.metadata['search_result_groups'] !== undefined) {
+                const search:Search = {
+                    platform: 'chatgpt',
+                    'query*': '?',
+                    type: 'web',
+                    results: []
+                }
+
+                for (const searchGroup of turnJson.metadata['search_result_groups']) {
+                  for (const entry in searchGroup.entries) {
+                    search.results.push({
+                      title: entry['title'],
+                      url: entry['url'],
+                      preview: entry['snippet'],
+                      index: entry['ref_id']['ref_index'],
+                      metadata: entry,
+                    })
                   }
+                }
 
-                  if (item.attributions !== null) {
-                    citation.source = item.attributions.join(', ')
+                turn.search = search
+              }
+
+              if (turnJson.metadata['content_references'] !== undefined) {
+                turn.citations = []
+
+                for (const contentReference of turnJson.metadata['content_references']) {
+                  for (const item of contentReference['items']) {
+                    const citation:Citation = {
+                      title: item.title,
+                      url: item.url,
+                      source: item.attribution
+                    }
+
+                    if (item.attributions !== null) {
+                      citation.source = item.attributions.join(', ')
+                    }
+
+                    turn.citations.push(citation)
                   }
-
-                  turn.citations.push(citation)
                 }
               }
             }
+
+            conversation.turns.push(turn)
           }
 
-          conversation.turns.push(turn)
-        }
+          for (const childId of turnJson.children) {
+            convoIds.push(childId)
+          }
 
-        for (const childId of turnJson.children) {
-          convoIds.push(childId)
         }
       }
 
