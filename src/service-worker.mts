@@ -354,10 +354,10 @@ export class REXChatGPTSpider extends REXSpider {
           })
 
           return
+        } else {
+          resolve(null)
         }
       })
-
-      resolve(null)
     })
   }
 }
