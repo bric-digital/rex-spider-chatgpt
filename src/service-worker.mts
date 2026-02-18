@@ -23,7 +23,7 @@ export class REXChatGPTSpider extends REXSpider {
   }
 
   fetchInitialUrls(): string[] {
-    return ['https://www.perplexity.ai/library/']
+    return ['https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false']
   }
 
   checkLogin(): Promise<boolean> {
@@ -107,7 +107,18 @@ export class REXChatGPTSpider extends REXSpider {
                       console.log(`[rex-spider-chatgpt] accessToken line!`)
                       console.log(line)
 
-                      this.accessToken = line
+                      const startIndex = line.indexOf('"accessToken":"')
+
+                      if (startIndex !== -1) {
+                        const prefixStripped = line.substring(startIndex)
+
+                        const tokens = prefixStripped.split('"')
+
+                        console.log(`[rex-spider-chatgpt] TOKENS!`)
+                        console.log(tokens)
+
+                        // this.accessToken = tokens[0]
+                      }
                     }
                   }
                 })
