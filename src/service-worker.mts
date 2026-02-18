@@ -334,7 +334,7 @@ export class REXChatGPTSpider extends REXSpider {
 
         console.log(`[rex-spider-chatgpt] TS TEST ${timestamp} <? ${latestDate.valueOf()}`)
 
-        if (true || timestamp < latestDate.valueOf()) {
+        if (timestamp < latestDate.valueOf()) {
           const payload:EventPayload = {
             name: 'rex-conversation',
             date: firstWhen,
