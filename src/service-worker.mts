@@ -262,45 +262,47 @@ export class REXChatGPTSpider extends REXSpider {
             turn['content*'] = turnJson.message.content.text
           }
 
-          if (turnJson.metadata['search_result_groups'] !== undefined) {
-            const search:Search = {
-                platform: 'chatgpt',
-                'query*': '?',
-                type: 'web',
-                results: []
-            }
-
-            for (const searchGroup of turnJson.metadata['search_result_groups']) {
-              for (const entry in searchGroup.entries) {
-                search.results.push({
-                  title: entry['title'],
-                  url: entry['url'],
-                  preview: entry['snippet'],
-                  index: entry['ref_id']['ref_index'],
-                  metadata: entry,
-                })
+          if (turnJson.metadata !== undefined) {
+            if (turnJson.metadata['search_result_groups'] !== undefined) {
+              const search:Search = {
+                  platform: 'chatgpt',
+                  'query*': '?',
+                  type: 'web',
+                  results: []
               }
+
+              for (const searchGroup of turnJson.metadata['search_result_groups']) {
+                for (const entry in searchGroup.entries) {
+                  search.results.push({
+                    title: entry['title'],
+                    url: entry['url'],
+                    preview: entry['snippet'],
+                    index: entry['ref_id']['ref_index'],
+                    metadata: entry,
+                  })
+                }
+              }
+
+              turn.search = search
             }
 
-            turn.search = search
-          }
+            if (turnJson.metadata['content_references'] !== undefined) {
+              turn.citations = []
 
-          if (turnJson.metadata['content_references'] !== undefined) {
-            turn.citations = []
+              for (const contentReference of turnJson.metadata['content_references']) {
+                for (const item of contentReference['items']) {
+                  const citation:Citation = {
+                    title: item.title,
+                    url: item.url,
+                    source: item.attribution
+                  }
 
-            for (const contentReference of turnJson.metadata['content_references']) {
-              for (const item of contentReference['items']) {
-                const citation:Citation = {
-                  title: item.title,
-                  url: item.url,
-                  source: item.attribution
+                  if (item.attributions !== null) {
+                    citation.source = item.attributions.join(', ')
+                  }
+
+                  turn.citations.push(citation)
                 }
-
-                if (item.attributions !== null) {
-                  citation.source = item.attributions.join(', ')
-                }
-
-                turn.citations.push(citation)
               }
             }
           }
@@ -329,7 +331,7 @@ export class REXChatGPTSpider extends REXSpider {
 
         console.log(`[rex-spider-chatgpt] TS TEST ${timestamp} <? ${latestDate.valueOf()}`)
 
-        if (timestamp < latestDate.valueOf()) {
+        if (true || timestamp < latestDate.valueOf()) {
           const payload:EventPayload = {
             name: 'rex-conversation',
             date: firstWhen,
