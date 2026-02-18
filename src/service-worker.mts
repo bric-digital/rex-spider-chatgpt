@@ -227,269 +227,142 @@ export class REXChatGPTSpider extends REXSpider {
       console.log(`[rex-spider-chatgpt] parseConversation:`)
       console.log(conversationJson)
 
-      // let firstWhen = new Date(conversationJson.entries[0]['entry_updated_datetime'])
+      let firstWhen = new Date(conversationJson['create_time'] * 1000)
 
-      // let latestDate = firstWhen
+      let latestDate = firstWhen
 
-      // let firstWhenString:DateString = new DateString(conversationJson.entries[0]['entry_updated_datetime'])
+      let firstWhenString:DateString = new DateString(conversationJson['create_time'])
 
-      // const conversation:Conversation = {
-      //   turns:[],
-      //   platform: 'perplexity',
-      //   identifier: conversationJson.entries[0]['thread_url_slug'],
-      //   started:firstWhenString,
-      //   ended:firstWhenString,
-      //   metadata: null
-      // }
+      const conversation:Conversation = {
+        turns:[],
+        platform: 'chatgpt',
+        identifier: conversationJson['conversation_id'],
+        started: firstWhenString,
+        ended:firstWhenString,
+        metadata: null
+      }
 
-      // const entryIndex = 0
+      const convoIds = ['client-created-root']
 
-      // for (const entry of conversationJson.entries) { // Each entry is a question and answer pair
-      //   let when = new Date(entry.entry_updated_datetime)
+      while (convoIds.length > 0) {
+        const convoId = convoIds.shift()
 
-      //   if (entry.updated_us !== undefined) {
-      //     when = new Date(entry.updated_us / 1000)
-      //   }
+        const turnJson = conversationJson['mapping'][convoId]
 
-      //   const whenString = new DateString(when.toISOString())
+        let createTime = firstWhen
 
-      //   if (entryIndex === 0) {
-      //     firstWhen = when
-      //     firstWhenString = whenString
+        if (turnJson.message !== null) {
+          if (turnJson['create_time'] !== null) {
+            createTime = new Date(turnJson['create_time'] * 1000)
+          }
 
-      //     conversation['started'] = whenString
-      //   }
+          const turn:Turn = {
+            speaker: turnJson.message.author.role,
+            when: createTime,
+            identifier: turnJson.message.id,
+            'content*': null,
+            'metadata*': turnJson,
+            'parent': turnJson.parent,
+          }
 
-      //   if (when > latestDate) {
-      //     latestDate = when
-      //   }
+          if (turnJson.message.content.parts !== undefined) {
+            turn['content*'] = turnJson.message.content.parts.join('\n')
+          } else if (turnJson.message.content.text !== undefined) {
+            turn['content*'] = turnJson.message.content.text
+          }
 
-      //   conversation['ended'] = whenString
+          if (turnJson.metadata['search_result_groups'] !== undefined) {
+            const search:Search = {
+                platform: 'chatgpt',
+                'query*': '?',
+                type: 'web',
+                results: []
+            }
 
-      //   const responseMetadata = {}
+            for (const searchGroup of turnJson.metadata['search_result_groups']) {
+              for (const entry in searchGroup.entries) {
+                search.results.push({
+                  title: entry['title'],
+                  url: entry['url'],
+                  preview: entry['snippet'],
+                  index: entry['ref_id']['ref_index'],
+                  metadata: entry,
+                })
+              }
+            }
 
-      //   const citations:Citation[] = []
+            turn.search = search
+          }
 
-      //   const search:Search = {
-      //     platform: 'perplexity',
-      //     'query*': '',
-      //     type: '',
-      //     results: [],
-      //   }
+          if (turnJson.metadata['content_references'] !== undefined) {
+            turn.citations = []
 
-      //   if (entry.text !== undefined) {
-      //     const stepsContent = JSON.parse(entry.text) as []
+            for (const contentReference of turnJson.metadata['content_references']) {
+              for (const item of contentReference['items']) {
+                const citation:Citation = {
+                  title: item.title,
+                  url: item.url,
+                  source: item.attribution
+                }
 
-      //     for (const step of stepsContent) {
-      //       if (step['step_type'] === 'INITIAL_QUERY') {
-      //         const turn:Turn = {
-      //           speaker: entry['author_username'],
-      //           when: whenString,
-      //           'content*': step['content']['query'],
-      //           identifier: 'uuid:',
-      //           'metadata*': {
-      //             INITIAL_QUERY: step
-      //           }
-      //         }
+                if (item.attributions !== null) {
+                  citation.source = item.attributions.join(', ')
+                }
 
-      //         conversation.turns.push(turn)
-      //       } else if (step['step_type'] === 'SEARCH_WEB') {
-      //         for (const query of step['content']['queries'] as []) {
-      //           if (search['query*'] !== '') {
-      //             search['query*'] += '; '
-      //           }
+                turn.citations.append(citation)
+              }
+            }
+          }
 
-      //           search['query*'] += query['query']
+          conversation.turns.push(turn)
+        }
 
-      //           if (search['type'] !== '') {
-      //             search['type'] += '; '
-      //           }
+        for (const childId of turnJson.children) {
+          convoIds.push(childId)
+        }
+      }
 
-      //           search['type'] += query['engine']
-      //         }
+      const lastUpdateKey = `${conversation.platform}-${conversation.identifier}-last-update`
 
-      //         responseMetadata['SEARCH_WEB'] = step
-      //       } else if (step['step_type'] === 'SEARCH_RESULTS') {
-      //         let index = 0
+      const message = {
+        messageType: 'fetchValue',
+        key: lastUpdateKey
+      }
 
-      //         for (const webResult of step['content']['web_results'] as []) {
-      //           const result:Result = {
-      //             title: webResult['name'],
-      //             url: webResult['url'],
-      //             preview: webResult['snippet'],
-      //             index,
-      //             metadata: webResult
-      //           }
+      rexCorePlugin.handleMessage(message, this, (response) => {
+        let timestamp = 0
 
-      //           search.results.push(result)
+        if (response !== null) {
+          timestamp = response
+        }
 
-      //           let citationDomainName:string|undefined = webResult['meta_data']['citation_domain_name']
+        console.log(`[rex-spider-chatgpt] TS TEST ${timestamp} <? ${latestDate.valueOf()}`)
 
-      //           if (citationDomainName === undefined) { // TODO - write test
-      //             citationDomainName = 'perplexity.unknown:citation_domain_name'
-      //           }
+        if (timestamp < latestDate.valueOf()) {
+          const payload:EventPayload = {
+            name: 'rex-conversation',
+            date: firstWhen,
+            ...conversation
+          }
 
-      //           const citation:Citation = {
-      //             title: webResult['name'],
-      //             url: webResult['url'],
-      //             source: citationDomainName,
-      //           }
+          console.log(`[rex-spider-chatgpt] log:`)
+          console.log(payload)
 
-      //           citations.push(citation)
+          const storeMessage = {
+            messageType: 'storeValue',
+            key: lastUpdateKey,
+            value: latestDate.valueOf()
+          }
 
-      //           index += 1
-      //         }
+          rexCorePlugin.handleMessage(storeMessage, this, (response) => { // eslint-disable-line @typescript-eslint/no-unused-vars
+            console.log(`[rex-spider-chatgpt] ${lastUpdateKey} = ${latestDate.valueOf()}`)
 
-      //         responseMetadata['SEARCH_RESULTS'] = step
+            resolve(payload)
+          })
 
-      //       } else if (step['step_type'] === 'FINAL') {
-      //         responseMetadata['FINAL'] = step
-
-      //         const answer = JSON.parse(step['content']['answer'])
-
-      //         const turn:Turn = {
-      //           speaker: `perplexity:${entry['author_username']}`,
-      //           when: whenString,
-      //           'content*': answer['answer'],
-      //           identifier: 'uuid:',
-      //           'metadata*': responseMetadata,
-      //         }
-
-      //         if (search['query*'] !== '') {
-      //           turn['search'] =  search
-      //         }
-
-      //         if (citations.length > 0) {
-      //           turn['citations'] =  citations
-      //         }
-
-      //         conversation.turns.push(turn)
-      //       }
-      //     }
-      //   } else if (entry['step_type'] !== undefined) {
-      //     const turn:Turn = {
-      //       speaker: entry['author_username'],
-      //       when: whenString,
-      //       'content*': entry['query_str'],
-      //       identifier: `uuid:${entry['uuid']}`,
-      //       'metadata*': entry
-      //     }
-
-      //     conversation.turns.push(turn)
-
-      //     for (const block of entry.blocks) {
-      //       if (block['intended_usage'] === 'sources_answer_mode') {
-      //         let index = 0
-
-      //         for (const webResult of block['sources_mode_block']['web_results']) {
-      //           const result:Result = {
-      //             title: webResult['name'],
-      //             url: webResult['url'],
-      //             preview: webResult['snippet'],
-      //             index,
-      //             metadata: webResult
-      //           }
-
-      //           search.results.push(result)
-
-      //           const citation:Citation = {
-      //             title: webResult['name'],
-      //             url: webResult['url'],
-      //             source: webResult['meta_data']['citation_domain_name']
-      //           }
-
-      //           citations.push(citation)
-
-      //           index += 1
-      //         }
-      //       } else if (block['intended_usage'] === 'pro_search_steps') {
-      //         for (const searchStep of block['plan_block']['steps']) {
-      //           if (searchStep['step_type'] === 'SEARCH_WEB') {
-      //             for (const searchQuery of searchStep['search_web_content']['queries']) {
-      //               if (search['query*'] !== '') {
-      //                 search['query*'] += '; '
-      //               }
-
-      //               search['query*'] += searchQuery['query']
-
-      //               if (search['type'].includes(searchQuery['engine']) === false) {
-      //                 if (search['type'] !== '') {
-      //                   search['type'] += '; '
-      //                 }
-
-      //                 search['type'] += searchQuery['engine']
-      //               }
-      //             }
-      //           }
-      //         }
-      //       } else if (block['intended_usage'] === 'ask_text') {
-      //         const response:Turn = {
-      //           speaker: `perplexity:${entry['user_selected_model']}`,
-      //           when: whenString,
-      //           'content*': block['markdown_block']['answer'],
-      //           identifier: `uuid:${entry['uuid']}`,
-      //           'metadata*': block
-      //         }
-
-      //         conversation.turns.push(response)
-      //       }
-      //     }
-
-      //     if (search['query*'] !== '') {
-      //       conversation.turns[conversation.turns.length - 1]['search'] = search
-      //     }
-
-      //     if (citations.length > 0) {
-      //       conversation.turns[conversation.turns.length - 1]['citations'] = citations
-      //     }
-      //   }
-
-      //   if (when > latestDate) {
-      //     latestDate = when
-      //   }
-      // }
-
-      // const lastUpdateKey = `${conversation.platform}-${conversation.identifier}-last-update`
-
-      // const message = {
-      //   messageType: 'fetchValue',
-      //   key: lastUpdateKey
-      // }
-
-      // rexCorePlugin.handleMessage(message, this, (response) => {
-      //   let timestamp = 0
-
-      //   if (response !== null) {
-      //     timestamp = response
-      //   }
-
-      //   console.log(`[rex-spider-perplexity] TS TEST ${timestamp} <? ${latestDate.valueOf()}`)
-
-      //   if (timestamp < latestDate.valueOf()) {
-      //     const payload:EventPayload = {
-      //       name: 'rex-conversation',
-      //       date: firstWhen,
-      //       ...conversation
-      //     }
-
-      //     console.log(`[rex-spider-perplexity] log:`)
-      //     console.log(payload)
-
-      //     const storeMessage = {
-      //       messageType: 'storeValue',
-      //       key: lastUpdateKey,
-      //       value: latestDate.valueOf()
-      //     }
-
-      //     rexCorePlugin.handleMessage(storeMessage, this, (response) => { // eslint-disable-line @typescript-eslint/no-unused-vars
-      //       console.log(`[rex-spider-perplexity] ${lastUpdateKey} = ${latestDate.valueOf()}`)
-
-      //       resolve(payload)
-      //     })
-
-      //     return
-      //   }
-      // })
+          return
+        }
+      })
 
       resolve(null)
     })
