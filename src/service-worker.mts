@@ -117,7 +117,9 @@ export class REXChatGPTSpider extends REXSpider {
                         console.log(`[rex-spider-chatgpt] TOKENS!`)
                         console.log(tokens)
 
-                        // this.accessToken = tokens[0]
+                        if (tokens.length > 3) {
+                          this.accessToken = tokens[3]
+                        }
                       }
                     }
                   }
@@ -125,9 +127,16 @@ export class REXChatGPTSpider extends REXSpider {
               }
 
               if (this.accessToken !== null) {
+                console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
+
                 const indexUrl = 'https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false'
 
-                fetch(indexUrl)
+                fetch(indexUrl, {
+                  method: 'GET',
+                  headers: {
+                    'Authorization': `Bearer ${this.accessToken}`
+                  }
+                })
                   .then((response: Response) => {
                     if (response.ok) {
                       const toCrawl = []
