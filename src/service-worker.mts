@@ -309,7 +309,7 @@ export class REXChatGPTSpider extends REXSpider {
                   citation.source = item.attributions.join(', ')
                 }
 
-                turn.citations.append(citation)
+                turn.citations.push(citation)
               }
             }
           }
