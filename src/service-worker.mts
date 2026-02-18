@@ -249,11 +249,11 @@ export class REXChatGPTSpider extends REXSpider {
 
         const turnJson = conversationJson['mapping'][convoId]
 
-        let createTime = firstWhen
+        let createTime = firstWhenString
 
         if (turnJson.message !== null) {
           if (turnJson['create_time'] !== null) {
-            createTime = new Date(turnJson['create_time'] * 1000)
+            createTime = new DateString(`${turnJson['create_time'] * 1000}`)
           }
 
           const turn:Turn = {
