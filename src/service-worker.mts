@@ -176,7 +176,6 @@ export class REXChatGPTSpider extends REXSpider {
                                             console.log(payload)
 
                                             if (payload !== null) {
-
                                               dispatchEvent(payload)
                                             }
 
@@ -230,7 +229,7 @@ export class REXChatGPTSpider extends REXSpider {
         identifier: conversationJson['conversation_id'],
         started: firstWhenString,
         ended:firstWhenString,
-        metadata: null
+        metadata: conversationJson // TODO: Pull out so only populated on debug=true
       }
 
       const convoIds = ['client-created-root']
