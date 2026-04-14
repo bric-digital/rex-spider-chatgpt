@@ -220,6 +220,7 @@ export class REXChatGPTSpider extends REXSpider {
 
                                         this.syncing = false
 
+                                        this.dispatchCompletionEvent(crawledCount)
                                         resolve(true) // Error - fall back to DOM scraping...
                                       }
                                     })
@@ -232,6 +233,7 @@ export class REXChatGPTSpider extends REXSpider {
                         } else {
                           this.syncing = false
 
+                          this.dispatchCompletionEvent(0)
                           resolve(true) // Error - fall back to DOM scraping...
                         }
                       })
