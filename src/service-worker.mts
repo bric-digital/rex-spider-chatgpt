@@ -125,8 +125,15 @@ export class REXChatGPTSpider extends REXSpider {
 
           fetch(homeUrl)
             .then((response: Response) => {
-              if (response.ok) {
-                response.text().then((rawHtml) => {
+              if (!response.ok) {
+                console.log(`[rex-spider-chatgpt] Homepage fetch failed (status ${response.status}).`)
+                this.syncing = false
+                this.dispatchCompletionEvent(0)
+                resolve(true) // Error - fall back to DOM scraping...
+                return
+              }
+
+              response.text().then((rawHtml) => {
                   const lines = rawHtml.match(/[^\r\n]+/g)
 
                   for (const line of lines) {
@@ -147,8 +154,15 @@ export class REXChatGPTSpider extends REXSpider {
                     }
                   }
 
-                  if (this.accessToken !== null) {
-                    console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
+                  if (this.accessToken === null) {
+                    console.log(`[rex-spider-chatgpt] No access token — user is not logged in.`)
+                    this.syncing = false
+                    this.dispatchCompletionEvent(0)
+                    resolve(true) // Not logged in — fall back to DOM scraping...
+                    return
+                  }
+
+                  console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
 
                     const indexUrl = 'https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false'
 
@@ -237,9 +251,13 @@ export class REXChatGPTSpider extends REXSpider {
                           resolve(true) // Error - fall back to DOM scraping...
                         }
                       })
-                  }
                 })
-              }
+            })
+            .catch((err) => {
+              console.log(`[rex-spider-chatgpt] Unexpected error during sync:`, err)
+              this.syncing = false
+              this.dispatchCompletionEvent(0)
+              resolve(true) // Error - fall back to DOM scraping...
             })
         })
       })
