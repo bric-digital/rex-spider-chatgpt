@@ -40,9 +40,12 @@ export class REXChatGPTSpider extends REXSpider {
     // persist debounce to expire so queued events flush before the signal.
     setTimeout(() => {
       dispatchEvent({
-        name: 'rex-spider-chatgpt-complete',
-        crawled_count: crawledCount,
-        date: Date.now()
+        name: 'pdk-app-event',
+        event_name: 'rex-spider-chatgpt-complete',
+        event_details: {
+          crawled_count: crawledCount,
+          date: Date.now()
+        }
       })
     }, 1100)
   }
