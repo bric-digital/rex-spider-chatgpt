@@ -260,6 +260,21 @@ export class REXChatGPTSpider extends REXSpider {
     })
   }
 
+  private updateTimeMs(raw: unknown): number | null {
+    if (typeof raw === 'number') {
+      // /backend-api/conversations uses Unix epoch seconds (fractional allowed).
+      return raw * 1000
+    }
+    if (typeof raw === 'string') {
+      // /backend-api/gizmos/{id}/conversations uses ISO-8601 strings.
+      const parsed = Date.parse(raw)
+      if (!Number.isNaN(parsed)) {
+        return parsed
+      }
+    }
+    return null
+  }
+
   private async pageIndex(accessToken: string): Promise<{ toCrawl: string[], firstPageFailed: boolean }> {
     const pageSize = 28
     const toCrawl: string[] = []
@@ -306,8 +321,8 @@ export class REXChatGPTSpider extends REXSpider {
       const items = body?.items ?? []
 
       for (const item of items) {
-        if (typeof item?.update_time !== 'number') continue
-        const itemUpdateMs = item.update_time * 1000
+        const itemUpdateMs = this.updateTimeMs(item?.update_time)
+        if (itemUpdateMs === null) continue
         if (itemUpdateMs >= cutoff) {
           if (item.id !== undefined) {
             const fullUrl = `https://chatgpt.com/backend-api/conversation/${item.id}`
