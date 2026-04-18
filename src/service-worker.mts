@@ -400,11 +400,11 @@ export class REXChatGPTSpider extends REXSpider {
 
         const sidebarBody = await sidebarResp.json()
 
-        // The sidebar response shape is { items: [{ gizmo: { id, ... }, ... }, ...], cursor: string|null }.
-        // Tolerate either items[].gizmo.id or items[].id so a future API tweak doesn't silently break us.
+        // The sidebar response nests the gizmo ID at items[].gizmo.gizmo.id. Fall back to
+        // items[].gizmo.id and items[].id so a future API reshape doesn't silently break us.
         const sidebarItems = sidebarBody?.items ?? []
         for (const entry of sidebarItems) {
-          const candidate = entry?.gizmo?.id ?? entry?.id
+          const candidate = entry?.gizmo?.gizmo?.id ?? entry?.gizmo?.id ?? entry?.id
           if (typeof candidate === 'string' && candidate.startsWith('g-p-')) {
             gizmoIds.push(candidate)
           }
