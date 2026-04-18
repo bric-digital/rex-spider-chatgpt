@@ -189,11 +189,11 @@ export class REXChatGPTSpider extends REXSpider {
                       const toCrawl = pagingResult.toCrawl
 
                       // Also page conversations that live inside Projects (gizmos).
-                      // A sidebar failure here is non-fatal: we still crawl the loose
-                      // conversations we already have.
+                      // A partial failure here is non-fatal: whatever project URLs we did
+                      // collect are still appended, and loose conversations already crawled.
                       const projectResult = await this.pageProjectIndex(this.accessToken, cutoff, toCrawl)
-                      if (projectResult.sidebarFailed) {
-                        console.log(`[rex-spider-chatgpt] Project enumeration failed — continuing with loose conversations only.`)
+                      if (projectResult.partialFailure) {
+                        console.log(`[rex-spider-chatgpt] Project enumeration hit a partial failure — using whatever was collected.`)
                       }
                       for (const url of projectResult.toCrawl) {
                         if (!toCrawl.includes(url)) toCrawl.push(url)
@@ -366,7 +366,7 @@ export class REXChatGPTSpider extends REXSpider {
     accessToken: string,
     cutoff: number,
     existingUrls: string[]
-  ): Promise<{ toCrawl: string[], sidebarFailed: boolean }> {
+  ): Promise<{ toCrawl: string[], partialFailure: boolean }> {
     const toCrawl: string[] = []
 
     try {
@@ -393,7 +393,7 @@ export class REXChatGPTSpider extends REXSpider {
           // First-page failure is the only case that blocks enumeration. Later-page failures
           // just stop pagination early and we use what we have so far.
           if (sidebarPageIndex === 0) {
-            return { toCrawl, sidebarFailed: true }
+            return { toCrawl, partialFailure: true }
           }
           break
         }
@@ -472,10 +472,10 @@ export class REXChatGPTSpider extends REXSpider {
         }
       }
 
-      return { toCrawl, sidebarFailed: false }
+      return { toCrawl, partialFailure: false }
     } catch (err) {
       console.log(`[rex-spider-chatgpt] pageProjectIndex threw unexpectedly:`, err)
-      return { toCrawl, sidebarFailed: true }
+      return { toCrawl, partialFailure: true }
     }
   }
 
