@@ -177,7 +177,8 @@ export class REXChatGPTSpider extends REXSpider {
 
                   console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
 
-                    this.pageIndex(this.accessToken).then((pagingResult) => {
+                    this.pagingCutoff().then((cutoff) => {
+                      this.pageIndex(this.accessToken, cutoff).then(async (pagingResult) => {
                       if (pagingResult.firstPageFailed) {
                         this.syncing = false
                         this.dispatchCompletionEvent(0)
@@ -186,6 +187,18 @@ export class REXChatGPTSpider extends REXSpider {
                       }
 
                       const toCrawl = pagingResult.toCrawl
+
+                      // Also page conversations that live inside Projects (gizmos).
+                      // A sidebar failure here is non-fatal: we still crawl the loose
+                      // conversations we already have.
+                      const projectResult = await this.pageProjectIndex(this.accessToken, cutoff, toCrawl)
+                      if (projectResult.sidebarFailed) {
+                        console.log(`[rex-spider-chatgpt] Project enumeration failed — continuing with loose conversations only.`)
+                      }
+                      for (const url of projectResult.toCrawl) {
+                        if (!toCrawl.includes(url)) toCrawl.push(url)
+                      }
+
                       let crawledCount = 0
 
                       console.log(`[rex-spider-chatgpt] Crawl list:`)
@@ -247,6 +260,7 @@ export class REXChatGPTSpider extends REXSpider {
 
                       fetchConvo()
                     })
+                    })
                 })
             })
             .catch((err) => {
@@ -275,10 +289,7 @@ export class REXChatGPTSpider extends REXSpider {
     return null
   }
 
-  private async pageIndex(accessToken: string): Promise<{ toCrawl: string[], firstPageFailed: boolean }> {
-    const pageSize = 28
-    const toCrawl: string[] = []
-
+  private async pagingCutoff(): Promise<number> {
     let installTime: number | null = null
     try {
       const response = await chrome.runtime.sendMessage({ messageType: 'getInstallTime' })
@@ -295,6 +306,12 @@ export class REXChatGPTSpider extends REXSpider {
     const anchor = installTime !== null ? installTime : Date.now()
     const cutoff = anchor - this.lookbackDays * 86_400_000
     console.log(`[rex-spider-chatgpt] Paging cutoff: ${new Date(cutoff).toISOString()} (lookbackDays=${this.lookbackDays}, installTime=${installTime})`)
+    return cutoff
+  }
+
+  private async pageIndex(accessToken: string, cutoff: number): Promise<{ toCrawl: string[], firstPageFailed: boolean }> {
+    const pageSize = 28
+    const toCrawl: string[] = []
 
     let offset = 0
     let pageIndex = 0
