@@ -345,6 +345,102 @@ export class REXChatGPTSpider extends REXSpider {
     return { toCrawl, firstPageFailed: false }
   }
 
+  private async pageProjectIndex(
+    accessToken: string,
+    cutoff: number,
+    existingUrls: string[]
+  ): Promise<{ toCrawl: string[], sidebarFailed: boolean }> {
+    const toCrawl: string[] = []
+
+    try {
+      // Step 1: list projects via the gizmos sidebar.
+      // conversations_per_gizmo=0 so we don't waste payload — we page each project explicitly below.
+      const sidebarUrl = 'https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=0&limit=100'
+      console.log(`[rex-spider-chatgpt] Project sidebar: ${sidebarUrl}`)
+
+      const sidebarResp = await fetch(sidebarUrl, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      })
+
+      if (!sidebarResp.ok) {
+        console.log(`[rex-spider-chatgpt] Project sidebar failed (status ${sidebarResp.status}).`)
+        return { toCrawl, sidebarFailed: true }
+      }
+
+      const sidebarBody = await sidebarResp.json()
+
+      // The sidebar response shape is { items: [{ gizmo: { id, ... }, ... }, ...] } for gizmos.
+      // Tolerate either items[].gizmo.id or items[].id so a future API tweak doesn't silently break us.
+      const sidebarItems = sidebarBody?.items ?? []
+      const gizmoIds: string[] = []
+      for (const entry of sidebarItems) {
+        const candidate = entry?.gizmo?.id ?? entry?.id
+        if (typeof candidate === 'string' && candidate.startsWith('g-p-')) {
+          gizmoIds.push(candidate)
+        }
+      }
+      console.log(`[rex-spider-chatgpt] Projects found: ${gizmoIds.length}`)
+
+      // Step 2: for each project, page its conversations with cursor pagination.
+      for (const gizmoId of gizmoIds) {
+        // Initial cursor is '0' to match the captured Network tab request. The cursor field is
+        // opaque — on subsequent requests we pass through whatever the API returned verbatim.
+        let cursor: string | null = '0'
+        let projectPageIndex = 0
+        let stop = false
+
+        while (!stop && cursor !== null && projectPageIndex < this.maxIndexPages) {
+          const cursorQs = encodeURIComponent(cursor)
+          const indexUrl = `https://chatgpt.com/backend-api/gizmos/${gizmoId}/conversations?cursor=${cursorQs}`
+          console.log(`[rex-spider-chatgpt] Project ${gizmoId} page ${projectPageIndex}: ${indexUrl}`)
+
+          const response = await fetch(indexUrl, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          })
+
+          if (!response.ok) {
+            console.log(`[rex-spider-chatgpt] Project ${gizmoId} page ${projectPageIndex} failed (status ${response.status}).`)
+            break
+          }
+
+          const body = await response.json()
+          const items = body?.items ?? []
+
+          for (const item of items) {
+            const itemUpdateMs = this.updateTimeMs(item?.update_time)
+            if (itemUpdateMs === null) continue
+            if (itemUpdateMs >= cutoff) {
+              if (item.id !== undefined) {
+                const fullUrl = `https://chatgpt.com/backend-api/conversation/${item.id}`
+                if (!toCrawl.includes(fullUrl) && !existingUrls.includes(fullUrl)) {
+                  toCrawl.push(fullUrl)
+                }
+              }
+            } else {
+              stop = true
+              break
+            }
+          }
+
+          const nextCursor = body?.cursor
+          cursor = typeof nextCursor === 'string' && nextCursor.length > 0 ? nextCursor : null
+          projectPageIndex += 1
+
+          if (!stop && cursor !== null && projectPageIndex < this.maxIndexPages) {
+            await new Promise((r) => self.setTimeout(r, this.sleepDelayMs))
+          }
+        }
+      }
+
+      return { toCrawl, sidebarFailed: false }
+    } catch (err) {
+      console.log(`[rex-spider-chatgpt] pageProjectIndex threw unexpectedly:`, err)
+      return { toCrawl, sidebarFailed: true }
+    }
+  }
+
   parseConversation(conversationJson):Promise<any|null> {
     return new Promise((resolve) => {
       console.log(`[rex-spider-chatgpt] parseConversation:`)
