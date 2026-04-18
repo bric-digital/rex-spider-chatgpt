@@ -372,29 +372,50 @@ export class REXChatGPTSpider extends REXSpider {
     try {
       // Step 1: list projects via the gizmos sidebar.
       // conversations_per_gizmo=0 so we don't waste payload — we page each project explicitly below.
-      const sidebarUrl = 'https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=0&limit=100'
-      console.log(`[rex-spider-chatgpt] Project sidebar: ${sidebarUrl}`)
-
-      const sidebarResp = await fetch(sidebarUrl, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      })
-
-      if (!sidebarResp.ok) {
-        console.log(`[rex-spider-chatgpt] Project sidebar failed (status ${sidebarResp.status}).`)
-        return { toCrawl, sidebarFailed: true }
-      }
-
-      const sidebarBody = await sidebarResp.json()
-
-      // The sidebar response shape is { items: [{ gizmo: { id, ... }, ... }, ...] } for gizmos.
-      // Tolerate either items[].gizmo.id or items[].id so a future API tweak doesn't silently break us.
-      const sidebarItems = sidebarBody?.items ?? []
+      // limit must be ≤20; the server returns 422 for higher values. Paginate via the response's
+      // `cursor` field for users with more than 20 projects.
       const gizmoIds: string[] = []
-      for (const entry of sidebarItems) {
-        const candidate = entry?.gizmo?.id ?? entry?.id
-        if (typeof candidate === 'string' && candidate.startsWith('g-p-')) {
-          gizmoIds.push(candidate)
+      let sidebarCursor: string | null = null
+      let sidebarPageIndex = 0
+
+      while (sidebarPageIndex === 0 || (sidebarCursor !== null && sidebarPageIndex < this.maxIndexPages)) {
+        const cursorQs = sidebarCursor === null ? '' : `&cursor=${encodeURIComponent(sidebarCursor)}`
+        const sidebarUrl = `https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=0&limit=20${cursorQs}`
+        console.log(`[rex-spider-chatgpt] Project sidebar page ${sidebarPageIndex}: ${sidebarUrl}`)
+
+        const sidebarResp = await fetch(sidebarUrl, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        })
+
+        if (!sidebarResp.ok) {
+          console.log(`[rex-spider-chatgpt] Project sidebar page ${sidebarPageIndex} failed (status ${sidebarResp.status}).`)
+          // First-page failure is the only case that blocks enumeration. Later-page failures
+          // just stop pagination early and we use what we have so far.
+          if (sidebarPageIndex === 0) {
+            return { toCrawl, sidebarFailed: true }
+          }
+          break
+        }
+
+        const sidebarBody = await sidebarResp.json()
+
+        // The sidebar response shape is { items: [{ gizmo: { id, ... }, ... }, ...], cursor: string|null }.
+        // Tolerate either items[].gizmo.id or items[].id so a future API tweak doesn't silently break us.
+        const sidebarItems = sidebarBody?.items ?? []
+        for (const entry of sidebarItems) {
+          const candidate = entry?.gizmo?.id ?? entry?.id
+          if (typeof candidate === 'string' && candidate.startsWith('g-p-')) {
+            gizmoIds.push(candidate)
+          }
+        }
+
+        const nextCursor = sidebarBody?.cursor
+        sidebarCursor = typeof nextCursor === 'string' && nextCursor.length > 0 ? nextCursor : null
+        sidebarPageIndex += 1
+
+        if (sidebarCursor !== null && sidebarPageIndex < this.maxIndexPages) {
+          await new Promise((r) => self.setTimeout(r, this.sleepDelayMs))
         }
       }
       console.log(`[rex-spider-chatgpt] Projects found: ${gizmoIds.length}`)
