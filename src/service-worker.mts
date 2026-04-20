@@ -557,6 +557,11 @@ export class REXChatGPTSpider extends REXSpider {
           if (turnJson.message !== null) {
             if (turnJson['create_time'] !== null) {
               createTime = new DateString(`${turnJson['create_time'] * 1000}`)
+              const turnDate = new Date(turnJson['create_time'] * 1000)
+              if (turnDate > latestDate) {
+                latestDate = turnDate
+                conversation.ended = createTime
+              }
             }
 
             const turn:Turn = {
@@ -629,49 +634,13 @@ export class REXChatGPTSpider extends REXSpider {
         }
       }
 
-      const lastUpdateKey = `${conversation.platform}-${conversation.identifier}-last-update`
-
-      const message = {
-        messageType: 'fetchValue',
-        key: lastUpdateKey
+      const payload: EventPayload = {
+        name: 'rex-conversation',
+        date: firstWhen,
+        ...conversation
       }
 
-      rexCorePlugin.handleMessage(message, this, (response) => {
-        let timestamp = 0
-
-        if (response !== null) {
-          timestamp = response
-        }
-
-        console.log(`[rex-spider-chatgpt] TS TEST ${timestamp} <? ${latestDate.valueOf()}`)
-
-        if (timestamp < latestDate.valueOf()) {
-          const payload:EventPayload = {
-            name: 'rex-conversation',
-            date: firstWhen,
-            ...conversation
-          }
-
-          console.log(`[rex-spider-chatgpt] log:`)
-          console.log(payload)
-
-          const storeMessage = {
-            messageType: 'storeValue',
-            key: lastUpdateKey,
-            value: latestDate.valueOf()
-          }
-
-          rexCorePlugin.handleMessage(storeMessage, this, (response) => { // eslint-disable-line @typescript-eslint/no-unused-vars
-            console.log(`[rex-spider-chatgpt] ${lastUpdateKey} = ${latestDate.valueOf()}`)
-
-            resolve(payload)
-          })
-
-          return
-        } else {
-          resolve(null)
-        }
-      })
+      resolve(payload)
     })
   }
 }
