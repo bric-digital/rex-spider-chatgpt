@@ -5,6 +5,8 @@ import rexSpiderPlugin, { REXSpider } from '@bric/rex-spider/service-worker'
 
 export class REXChatGPTSpider extends REXSpider {
   sleepDelayMs:number = 10000
+  lookbackDays:number = 30
+  maxIndexPages:number = 50
   syncing:boolean = false
   lastSync:number = 0
   syncPeriod:number = 300000
@@ -13,7 +15,7 @@ export class REXChatGPTSpider extends REXSpider {
   constructor() {
     super()
 
-    // Override sleepDelayMs from server config if provided.
+    // Override sleepDelayMs / lookbackDays / maxIndexPages from server config if provided.
     rexCorePlugin.fetchConfiguration()
       .then((config) => {
         const spiderConfig = (config as Record<string, any>)?.spider?.chatgpt // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -21,8 +23,16 @@ export class REXChatGPTSpider extends REXSpider {
         if (typeof configuredDelay === 'number') {
           this.sleepDelayMs = configuredDelay
         }
+        const configuredLookback = spiderConfig?.lookback_days
+        if (typeof configuredLookback === 'number') {
+          this.lookbackDays = configuredLookback
+        }
+        const configuredMaxPages = spiderConfig?.max_index_pages
+        if (typeof configuredMaxPages === 'number') {
+          this.maxIndexPages = configuredMaxPages
+        }
       })
-      .catch((err) => console.warn('[rex-spider-chatgpt] Failed to read sleep_delay_ms from config:', err))
+      .catch((err) => console.warn('[rex-spider-chatgpt] Failed to read spider config:', err))
   }
 
   private dispatchCompletionEvent(crawledCount: number): void {
@@ -30,9 +40,12 @@ export class REXChatGPTSpider extends REXSpider {
     // persist debounce to expire so queued events flush before the signal.
     setTimeout(() => {
       dispatchEvent({
-        name: 'rex-spider-chatgpt-complete',
-        crawled_count: crawledCount,
-        date: Date.now()
+        name: 'pdk-app-event',
+        event_name: 'rex-spider-chatgpt-complete',
+        event_details: {
+          crawled_count: crawledCount,
+          date: Date.now()
+        }
       })
     }, 1100)
   }
@@ -164,38 +177,28 @@ export class REXChatGPTSpider extends REXSpider {
 
                   console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
 
-                    const indexUrl = 'https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false'
-
-                    fetch(indexUrl, {
-                      method: 'GET',
-                      headers: {
-                        'Authorization': `Bearer ${this.accessToken}`
+                    this.pageIndex(this.accessToken).then((pagingResult) => {
+                      if (pagingResult.firstPageFailed) {
+                        this.syncing = false
+                        this.dispatchCompletionEvent(0)
+                        resolve(true) // Error - fall back to DOM scraping...
+                        return
                       }
-                    })
-                      .then((response: Response) => {
-                        if (response.ok) {
-                          const toCrawl = []
 
-                          let crawledCount = 0
+                      const toCrawl = pagingResult.toCrawl
+                      let crawledCount = 0
 
-                          response.json().then((convoList) => {
-                            console.log(`[rex-spider-chatgpt] Index content:`)
-                            console.log(convoList)
+                      console.log(`[rex-spider-chatgpt] Crawl list:`)
+                      console.log(toCrawl)
 
-                            for (const convo of convoList.items) {
-                              if (convo.id !== undefined) {
-                                const fullUrl = `https://chatgpt.com/backend-api/conversation/${convo.id}`
+                      if (toCrawl.length === 0) {
+                        this.syncing = false
+                        this.dispatchCompletionEvent(0)
+                        resolve(false)
+                        return
+                      }
 
-                                if (toCrawl.includes(fullUrl) === false) {
-                                  toCrawl.push(fullUrl)
-                                }
-                              }
-                            }
-
-                            console.log(`[rex-spider-chatgpt] Crawl list:`)
-                            console.log(toCrawl)
-
-                            const fetchConvo = () => {
+                      const fetchConvo = () => {
                               if (toCrawl.length == 0) {
                                 this.syncing = false
 
@@ -242,15 +245,8 @@ export class REXChatGPTSpider extends REXSpider {
                               }
                             }
 
-                            fetchConvo()
-                          })
-                        } else {
-                          this.syncing = false
-
-                          this.dispatchCompletionEvent(0)
-                          resolve(true) // Error - fall back to DOM scraping...
-                        }
-                      })
+                      fetchConvo()
+                    })
                 })
             })
             .catch((err) => {
@@ -262,6 +258,76 @@ export class REXChatGPTSpider extends REXSpider {
         })
       })
     })
+  }
+
+  private async pageIndex(accessToken: string): Promise<{ toCrawl: string[], firstPageFailed: boolean }> {
+    const pageSize = 28
+    const toCrawl: string[] = []
+
+    let installTime: number | null = null
+    try {
+      const response = await chrome.runtime.sendMessage({ messageType: 'getInstallTime' })
+      if (typeof response === 'number') {
+        installTime = response
+      }
+    } catch (err) {
+      console.log(`[rex-spider-chatgpt] getInstallTime unavailable:`, err)
+    }
+    // Anchor the lookback window at install time so that as the study runs, the
+    // pre-study buffer stays fixed at (install - lookback_days). Conversations
+    // updated between install and now are always included. Fall back to
+    // (now - lookback_days) when install time isn't known (e.g. rex-dev-extension).
+    const anchor = installTime !== null ? installTime : Date.now()
+    const cutoff = anchor - this.lookbackDays * 86_400_000
+    console.log(`[rex-spider-chatgpt] Paging cutoff: ${new Date(cutoff).toISOString()} (lookbackDays=${this.lookbackDays}, installTime=${installTime})`)
+
+    let offset = 0
+    let pageIndex = 0
+    let stop = false
+
+    while (!stop && pageIndex < this.maxIndexPages) {
+      const indexUrl = `https://chatgpt.com/backend-api/conversations?offset=${offset}&limit=${pageSize}&order=updated&is_archived=false&is_starred=false`
+      console.log(`[rex-spider-chatgpt] Index page ${pageIndex} (offset=${offset}): ${indexUrl}`)
+
+      const response = await fetch(indexUrl, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      })
+
+      if (!response.ok) {
+        console.log(`[rex-spider-chatgpt] Index page ${pageIndex} failed (status ${response.status}).`)
+        if (pageIndex === 0) {
+          return { toCrawl: [], firstPageFailed: true }
+        }
+        break
+      }
+
+      const body = await response.json()
+      const items = body?.items ?? []
+
+      for (const item of items) {
+        if (typeof item?.update_time !== 'number') continue
+        const itemUpdateMs = item.update_time * 1000
+        if (itemUpdateMs >= cutoff) {
+          if (item.id !== undefined) {
+            const fullUrl = `https://chatgpt.com/backend-api/conversation/${item.id}`
+            if (!toCrawl.includes(fullUrl)) toCrawl.push(fullUrl)
+          }
+        } else {
+          stop = true
+          break
+        }
+      }
+
+      if (items.length < pageSize) break
+      offset += pageSize
+      pageIndex += 1
+      if (!stop && pageIndex < this.maxIndexPages) {
+        await new Promise((r) => self.setTimeout(r, this.sleepDelayMs))
+      }
+    }
+
+    return { toCrawl, firstPageFailed: false }
   }
 
   parseConversation(conversationJson):Promise<any|null> {
