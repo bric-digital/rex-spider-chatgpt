@@ -10,6 +10,33 @@ export class REXChatGPTSpider extends REXSpider {
   syncPeriod:number = 300000
   accessToken:string|null = null
 
+  constructor() {
+    super()
+
+    // Override sleepDelayMs from server config if provided.
+    rexCorePlugin.fetchConfiguration()
+      .then((config) => {
+        const spiderConfig = (config as Record<string, any>)?.spider?.chatgpt // eslint-disable-line @typescript-eslint/no-explicit-any
+        const configuredDelay = spiderConfig?.sleep_delay_ms
+        if (typeof configuredDelay === 'number') {
+          this.sleepDelayMs = configuredDelay
+        }
+      })
+      .catch((err) => console.warn('[rex-spider-chatgpt] Failed to read sleep_delay_ms from config:', err))
+  }
+
+  private dispatchCompletionEvent(crawledCount: number): void {
+    // Delay mirrors the rex-history completion pattern: waits for PDK's
+    // persist debounce to expire so queued events flush before the signal.
+    setTimeout(() => {
+      dispatchEvent({
+        name: 'rex-spider-chatgpt-complete',
+        crawled_count: crawledCount,
+        date: Date.now()
+      })
+    }, 1100)
+  }
+
   fetchUrls(): string[] {
     return ['https://www.perplexity.ai/library']
   }
@@ -79,6 +106,7 @@ export class REXChatGPTSpider extends REXSpider {
 
         if (Date.now() < timestamp + this.syncPeriod) {
           console.log(`[rex-spider-chatgpt] Too soon to sync again. Skipping this round...`)
+          this.dispatchCompletionEvent(0)
           resolve(true)
 
           return
@@ -97,8 +125,15 @@ export class REXChatGPTSpider extends REXSpider {
 
           fetch(homeUrl)
             .then((response: Response) => {
-              if (response.ok) {
-                response.text().then((rawHtml) => {
+              if (!response.ok) {
+                console.log(`[rex-spider-chatgpt] Homepage fetch failed (status ${response.status}).`)
+                this.syncing = false
+                this.dispatchCompletionEvent(0)
+                resolve(true) // Error - fall back to DOM scraping...
+                return
+              }
+
+              response.text().then((rawHtml) => {
                   const lines = rawHtml.match(/[^\r\n]+/g)
 
                   for (const line of lines) {
@@ -119,8 +154,15 @@ export class REXChatGPTSpider extends REXSpider {
                     }
                   }
 
-                  if (this.accessToken !== null) {
-                    console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
+                  if (this.accessToken === null) {
+                    console.log(`[rex-spider-chatgpt] No access token — user is not logged in.`)
+                    this.syncing = false
+                    this.dispatchCompletionEvent(0)
+                    resolve(true) // Not logged in — fall back to DOM scraping...
+                    return
+                  }
+
+                  console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
 
                     const indexUrl = 'https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false'
 
@@ -133,6 +175,8 @@ export class REXChatGPTSpider extends REXSpider {
                       .then((response: Response) => {
                         if (response.ok) {
                           const toCrawl = []
+
+                          let crawledCount = 0
 
                           response.json().then((convoList) => {
                             console.log(`[rex-spider-chatgpt] Index content:`)
@@ -155,6 +199,7 @@ export class REXChatGPTSpider extends REXSpider {
                               if (toCrawl.length == 0) {
                                 this.syncing = false
 
+                                this.dispatchCompletionEvent(crawledCount)
                                 resolve(false)
                               } else {
                                 self.setTimeout(() => {
@@ -177,6 +222,7 @@ export class REXChatGPTSpider extends REXSpider {
 
                                             if (payload !== null) {
                                               dispatchEvent(payload)
+                                              crawledCount += 1
                                             }
 
                                             fetchConvo()
@@ -188,6 +234,7 @@ export class REXChatGPTSpider extends REXSpider {
 
                                         this.syncing = false
 
+                                        this.dispatchCompletionEvent(crawledCount)
                                         resolve(true) // Error - fall back to DOM scraping...
                                       }
                                     })
@@ -200,12 +247,17 @@ export class REXChatGPTSpider extends REXSpider {
                         } else {
                           this.syncing = false
 
+                          this.dispatchCompletionEvent(0)
                           resolve(true) // Error - fall back to DOM scraping...
                         }
                       })
-                  }
                 })
-              }
+            })
+            .catch((err) => {
+              console.log(`[rex-spider-chatgpt] Unexpected error during sync:`, err)
+              this.syncing = false
+              this.dispatchCompletionEvent(0)
+              resolve(true) // Error - fall back to DOM scraping...
             })
         })
       })
