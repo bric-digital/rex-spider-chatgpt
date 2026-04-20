@@ -177,7 +177,8 @@ export class REXChatGPTSpider extends REXSpider {
 
                   console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
 
-                    this.pageIndex(this.accessToken).then((pagingResult) => {
+                    this.pagingCutoff().then((cutoff) => {
+                      this.pageIndex(this.accessToken, cutoff).then(async (pagingResult) => {
                       if (pagingResult.firstPageFailed) {
                         this.syncing = false
                         this.dispatchCompletionEvent(0)
@@ -186,6 +187,18 @@ export class REXChatGPTSpider extends REXSpider {
                       }
 
                       const toCrawl = pagingResult.toCrawl
+
+                      // Also page conversations that live inside Projects (gizmos).
+                      // A partial failure here is non-fatal: whatever project URLs we did
+                      // collect are still appended, and loose conversations already crawled.
+                      const projectResult = await this.pageProjectIndex(this.accessToken, cutoff, toCrawl)
+                      if (projectResult.partialFailure) {
+                        console.log(`[rex-spider-chatgpt] Project enumeration hit a partial failure — using whatever was collected.`)
+                      }
+                      for (const url of projectResult.toCrawl) {
+                        if (!toCrawl.includes(url)) toCrawl.push(url)
+                      }
+
                       let crawledCount = 0
 
                       console.log(`[rex-spider-chatgpt] Crawl list:`)
@@ -247,6 +260,7 @@ export class REXChatGPTSpider extends REXSpider {
 
                       fetchConvo()
                     })
+                    })
                 })
             })
             .catch((err) => {
@@ -260,10 +274,22 @@ export class REXChatGPTSpider extends REXSpider {
     })
   }
 
-  private async pageIndex(accessToken: string): Promise<{ toCrawl: string[], firstPageFailed: boolean }> {
-    const pageSize = 28
-    const toCrawl: string[] = []
+  private updateTimeMs(raw: unknown): number | null {
+    if (typeof raw === 'number') {
+      // /backend-api/conversations uses Unix epoch seconds (fractional allowed).
+      return raw * 1000
+    }
+    if (typeof raw === 'string') {
+      // /backend-api/gizmos/{id}/conversations uses ISO-8601 strings.
+      const parsed = Date.parse(raw)
+      if (!Number.isNaN(parsed)) {
+        return parsed
+      }
+    }
+    return null
+  }
 
+  private async pagingCutoff(): Promise<number> {
     let installTime: number | null = null
     try {
       const response = await chrome.runtime.sendMessage({ messageType: 'getInstallTime' })
@@ -280,6 +306,12 @@ export class REXChatGPTSpider extends REXSpider {
     const anchor = installTime !== null ? installTime : Date.now()
     const cutoff = anchor - this.lookbackDays * 86_400_000
     console.log(`[rex-spider-chatgpt] Paging cutoff: ${new Date(cutoff).toISOString()} (lookbackDays=${this.lookbackDays}, installTime=${installTime})`)
+    return cutoff
+  }
+
+  private async pageIndex(accessToken: string, cutoff: number): Promise<{ toCrawl: string[], firstPageFailed: boolean }> {
+    const pageSize = 28
+    const toCrawl: string[] = []
 
     let offset = 0
     let pageIndex = 0
@@ -306,8 +338,8 @@ export class REXChatGPTSpider extends REXSpider {
       const items = body?.items ?? []
 
       for (const item of items) {
-        if (typeof item?.update_time !== 'number') continue
-        const itemUpdateMs = item.update_time * 1000
+        const itemUpdateMs = this.updateTimeMs(item?.update_time)
+        if (itemUpdateMs === null) continue
         if (itemUpdateMs >= cutoff) {
           if (item.id !== undefined) {
             const fullUrl = `https://chatgpt.com/backend-api/conversation/${item.id}`
@@ -328,6 +360,123 @@ export class REXChatGPTSpider extends REXSpider {
     }
 
     return { toCrawl, firstPageFailed: false }
+  }
+
+  private async pageProjectIndex(
+    accessToken: string,
+    cutoff: number,
+    existingUrls: string[]
+  ): Promise<{ toCrawl: string[], partialFailure: boolean }> {
+    const toCrawl: string[] = []
+
+    try {
+      // Step 1: list projects via the gizmos sidebar.
+      // conversations_per_gizmo=0 so we don't waste payload — we page each project explicitly below.
+      // limit must be ≤20; the server returns 422 for higher values. Paginate via the response's
+      // `cursor` field for users with more than 20 projects.
+      const gizmoIds: string[] = []
+      let sidebarCursor: string | null = null
+      let sidebarPageIndex = 0
+
+      while (sidebarPageIndex === 0 || (sidebarCursor !== null && sidebarPageIndex < this.maxIndexPages)) {
+        const cursorQs = sidebarCursor === null ? '' : `&cursor=${encodeURIComponent(sidebarCursor)}`
+        const sidebarUrl = `https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=0&limit=20${cursorQs}`
+        console.log(`[rex-spider-chatgpt] Project sidebar page ${sidebarPageIndex}: ${sidebarUrl}`)
+
+        const sidebarResp = await fetch(sidebarUrl, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        })
+
+        if (!sidebarResp.ok) {
+          console.log(`[rex-spider-chatgpt] Project sidebar page ${sidebarPageIndex} failed (status ${sidebarResp.status}).`)
+          // First-page failure is the only case that blocks enumeration. Later-page failures
+          // just stop pagination early and we use what we have so far.
+          if (sidebarPageIndex === 0) {
+            return { toCrawl, partialFailure: true }
+          }
+          break
+        }
+
+        const sidebarBody = await sidebarResp.json()
+
+        // The sidebar response nests the gizmo ID at items[].gizmo.gizmo.id. Fall back to
+        // items[].gizmo.id and items[].id so a future API reshape doesn't silently break us.
+        const sidebarItems = sidebarBody?.items ?? []
+        for (const entry of sidebarItems) {
+          const candidate = entry?.gizmo?.gizmo?.id ?? entry?.gizmo?.id ?? entry?.id
+          if (typeof candidate === 'string' && candidate.startsWith('g-p-')) {
+            gizmoIds.push(candidate)
+          }
+        }
+
+        const nextCursor = sidebarBody?.cursor
+        sidebarCursor = typeof nextCursor === 'string' && nextCursor.length > 0 ? nextCursor : null
+        sidebarPageIndex += 1
+
+        if (sidebarCursor !== null && sidebarPageIndex < this.maxIndexPages) {
+          await new Promise((r) => self.setTimeout(r, this.sleepDelayMs))
+        }
+      }
+      console.log(`[rex-spider-chatgpt] Projects found: ${gizmoIds.length}`)
+
+      // Step 2: for each project, page its conversations with cursor pagination.
+      for (const gizmoId of gizmoIds) {
+        // Initial cursor is '0' to match the captured Network tab request. The cursor field is
+        // opaque — on subsequent requests we pass through whatever the API returned verbatim.
+        let cursor: string | null = '0'
+        let projectPageIndex = 0
+        let stop = false
+
+        while (!stop && cursor !== null && projectPageIndex < this.maxIndexPages) {
+          const cursorQs = encodeURIComponent(cursor)
+          const indexUrl = `https://chatgpt.com/backend-api/gizmos/${gizmoId}/conversations?cursor=${cursorQs}`
+          console.log(`[rex-spider-chatgpt] Project ${gizmoId} page ${projectPageIndex}: ${indexUrl}`)
+
+          const response = await fetch(indexUrl, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          })
+
+          if (!response.ok) {
+            console.log(`[rex-spider-chatgpt] Project ${gizmoId} page ${projectPageIndex} failed (status ${response.status}).`)
+            break
+          }
+
+          const body = await response.json()
+          const items = body?.items ?? []
+
+          for (const item of items) {
+            const itemUpdateMs = this.updateTimeMs(item?.update_time)
+            if (itemUpdateMs === null) continue
+            if (itemUpdateMs >= cutoff) {
+              if (item.id !== undefined) {
+                const fullUrl = `https://chatgpt.com/backend-api/conversation/${item.id}`
+                if (!toCrawl.includes(fullUrl) && !existingUrls.includes(fullUrl)) {
+                  toCrawl.push(fullUrl)
+                }
+              }
+            } else {
+              stop = true
+              break
+            }
+          }
+
+          const nextCursor = body?.cursor
+          cursor = typeof nextCursor === 'string' && nextCursor.length > 0 ? nextCursor : null
+          projectPageIndex += 1
+
+          if (!stop && cursor !== null && projectPageIndex < this.maxIndexPages) {
+            await new Promise((r) => self.setTimeout(r, this.sleepDelayMs))
+          }
+        }
+      }
+
+      return { toCrawl, partialFailure: false }
+    } catch (err) {
+      console.log(`[rex-spider-chatgpt] pageProjectIndex threw unexpectedly:`, err)
+      return { toCrawl, partialFailure: true }
+    }
   }
 
   parseConversation(conversationJson):Promise<any|null> {
