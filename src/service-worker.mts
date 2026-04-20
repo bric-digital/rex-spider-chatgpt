@@ -10,6 +10,33 @@ export class REXChatGPTSpider extends REXSpider {
   syncPeriod:number = 300000
   accessToken:string|null = null
 
+  constructor() {
+    super()
+
+    // Override sleepDelayMs from server config if provided.
+    rexCorePlugin.fetchConfiguration()
+      .then((config) => {
+        const spiderConfig = (config as Record<string, any>)?.spider?.chatgpt // eslint-disable-line @typescript-eslint/no-explicit-any
+        const configuredDelay = spiderConfig?.sleep_delay_ms
+        if (typeof configuredDelay === 'number') {
+          this.sleepDelayMs = configuredDelay
+        }
+      })
+      .catch((err) => console.warn('[rex-spider-chatgpt] Failed to read sleep_delay_ms from config:', err))
+  }
+
+  private dispatchCompletionEvent(crawledCount: number): void {
+    // Delay mirrors the rex-history completion pattern: waits for PDK's
+    // persist debounce to expire so queued events flush before the signal.
+    setTimeout(() => {
+      dispatchEvent({
+        name: 'rex-spider-chatgpt-complete',
+        crawled_count: crawledCount,
+        date: Date.now()
+      })
+    }, 1100)
+  }
+
   fetchUrls(): string[] {
     return ['https://www.perplexity.ai/library']
   }
@@ -23,7 +50,7 @@ export class REXChatGPTSpider extends REXSpider {
   }
 
   fetchInitialUrls(): string[] {
-    return ['https://www.perplexity.ai/library/']
+    return ['https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false']
   }
 
   checkLogin(): Promise<boolean> {
@@ -39,8 +66,7 @@ export class REXChatGPTSpider extends REXSpider {
 
               for (const line of lines) {
                 if (line.includes('"accessToken"')) {
-                  console.log(`[rex-spider-chatgpt] accessToken line!`)
-                  console.log(line)
+                  console.log(`[rex-spider-chatgpt] accessToken present.`)
 
                   resolve(true)
                 }
@@ -80,6 +106,7 @@ export class REXChatGPTSpider extends REXSpider {
 
         if (Date.now() < timestamp + this.syncPeriod) {
           console.log(`[rex-spider-chatgpt] Too soon to sync again. Skipping this round...`)
+          this.dispatchCompletionEvent(0)
           resolve(true)
 
           return
@@ -98,95 +125,139 @@ export class REXChatGPTSpider extends REXSpider {
 
           fetch(homeUrl)
             .then((response: Response) => {
-              if (response.ok) {
-                response.text().then((rawHtml) => {
+              if (!response.ok) {
+                console.log(`[rex-spider-chatgpt] Homepage fetch failed (status ${response.status}).`)
+                this.syncing = false
+                this.dispatchCompletionEvent(0)
+                resolve(true) // Error - fall back to DOM scraping...
+                return
+              }
+
+              response.text().then((rawHtml) => {
                   const lines = rawHtml.match(/[^\r\n]+/g)
 
                   for (const line of lines) {
                     if (line.includes('"accessToken"')) {
-                      console.log(`[rex-spider-chatgpt] accessToken line!`)
-                      console.log(line)
+                      console.log(`[rex-spider-chatgpt] accessToken present.`)
 
-                      this.accessToken = line
+                      const startIndex = line.indexOf('"accessToken":"')
+
+                      if (startIndex !== -1) {
+                        const prefixStripped = line.substring(startIndex)
+
+                        const tokens = prefixStripped.split('"')
+
+                        if (tokens.length > 3) {
+                          this.accessToken = tokens[3]
+                        }
+                      }
                     }
                   }
-                })
-              }
 
-              if (this.accessToken !== null) {
-                const indexUrl = 'https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false'
+                  if (this.accessToken === null) {
+                    console.log(`[rex-spider-chatgpt] No access token — user is not logged in.`)
+                    this.syncing = false
+                    this.dispatchCompletionEvent(0)
+                    resolve(true) // Not logged in — fall back to DOM scraping...
+                    return
+                  }
 
-                fetch(indexUrl)
-                  .then((response: Response) => {
-                    if (response.ok) {
-                      const toCrawl = []
+                  console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
 
-                      response.json().then((convoList) => {
-                        console.log(`[rex-spider-chatgpt] Index content:`)
-                        console.log(convoList)
+                    const indexUrl = 'https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false'
 
-                        for (const convo of convoList.items) {
-                          if (convo.id !== undefined) {
-                            const fullUrl = `https://chatgpt.com/backend-api/conversation/${convo.id}
-`
-                            if (toCrawl.includes(fullUrl) === false) {
-                              toCrawl.push(fullUrl)
+                    fetch(indexUrl, {
+                      method: 'GET',
+                      headers: {
+                        'Authorization': `Bearer ${this.accessToken}`
+                      }
+                    })
+                      .then((response: Response) => {
+                        if (response.ok) {
+                          const toCrawl = []
+
+                          let crawledCount = 0
+
+                          response.json().then((convoList) => {
+                            console.log(`[rex-spider-chatgpt] Index content:`)
+                            console.log(convoList)
+
+                            for (const convo of convoList.items) {
+                              if (convo.id !== undefined) {
+                                const fullUrl = `https://chatgpt.com/backend-api/conversation/${convo.id}`
+
+                                if (toCrawl.includes(fullUrl) === false) {
+                                  toCrawl.push(fullUrl)
+                                }
+                              }
                             }
-                          }
-                        }
 
-                        console.log(`[rex-spider-chatgpt] Crawl list:`)
-                        console.log(toCrawl)
+                            console.log(`[rex-spider-chatgpt] Crawl list:`)
+                            console.log(toCrawl)
 
-                        const fetchConvo = () => {
-                          if (toCrawl.length == 0) {
-                            resolve(false)
-                          } else {
-                            self.setTimeout(() => {
-                              const nextUrl = toCrawl.shift()
+                            const fetchConvo = () => {
+                              if (toCrawl.length == 0) {
+                                this.syncing = false
 
-                              console.log(`[rex-spider-chatgpt] Crawl: ${nextUrl}`)
+                                this.dispatchCompletionEvent(crawledCount)
+                                resolve(false)
+                              } else {
+                                self.setTimeout(() => {
+                                  const nextUrl = toCrawl.shift()
 
-                              fetch(nextUrl)
-                                .then((convoResponse: Response) => {
-                                  if (convoResponse.ok) {
-                                    convoResponse.json().then((result) => {
-                                      if (result.status === 'success') {
-                                        this.parseConversation(result).then((payload) => {
-                                          if (payload !== null) {
+                                  console.log(`[rex-spider-chatgpt] Crawl: ${nextUrl}`)
+
+                                  fetch(nextUrl, {
+                                    method: 'GET',
+                                    headers: {
+                                      'Authorization': `Bearer ${this.accessToken}`
+                                    }
+                                  })
+                                    .then((convoResponse: Response) => {
+                                      if (convoResponse.ok) {
+                                        convoResponse.json().then((result) => {
+                                          this.parseConversation(result).then((payload) => {
                                             console.log(`[rex-spider-chatgpt] log:`)
                                             console.log(payload)
 
-                                            dispatchEvent(payload)
-                                          }
+                                            if (payload !== null) {
+                                              dispatchEvent(payload)
+                                              crawledCount += 1
+                                            }
 
-                                          fetchConvo()
+                                            fetchConvo()
+                                          })
                                         })
                                       } else {
-                                        console.log(`[rex-spider-chatgpt] Crawl failed ${nextUrl}. Content:`)
+                                        console.log(`[rex-spider-chatgpt] Crawl failed ${nextUrl}. Response:`)
                                         console.log(convoResponse)
 
+                                        this.syncing = false
+
+                                        this.dispatchCompletionEvent(crawledCount)
                                         resolve(true) // Error - fall back to DOM scraping...
                                       }
                                     })
-                                  } else {
-                                    console.log(`[rex-spider-chatgpt] Crawl failed ${nextUrl}. Response:`)
-                                    console.log(convoResponse)
+                                }, this.sleepDelayMs)
+                              }
+                            }
 
-                                    resolve(true) // Error - fall back to DOM scraping...
-                                  }
-                                })
-                            }, this.sleepDelayMs)
-                          }
+                            fetchConvo()
+                          })
+                        } else {
+                          this.syncing = false
+
+                          this.dispatchCompletionEvent(0)
+                          resolve(true) // Error - fall back to DOM scraping...
                         }
-
-                        fetchConvo()
                       })
-                    } else {
-                      resolve(true) // Error - fall back to DOM scraping...
-                    }
-                  })
-              }
+                })
+            })
+            .catch((err) => {
+              console.log(`[rex-spider-chatgpt] Unexpected error during sync:`, err)
+              this.syncing = false
+              this.dispatchCompletionEvent(0)
+              resolve(true) // Error - fall back to DOM scraping...
             })
         })
       })
@@ -198,271 +269,149 @@ export class REXChatGPTSpider extends REXSpider {
       console.log(`[rex-spider-chatgpt] parseConversation:`)
       console.log(conversationJson)
 
-      // let firstWhen = new Date(conversationJson.entries[0]['entry_updated_datetime'])
+      let firstWhen = new Date(conversationJson['create_time'] * 1000)
 
-      // let latestDate = firstWhen
+      let latestDate = firstWhen
 
-      // let firstWhenString:DateString = new DateString(conversationJson.entries[0]['entry_updated_datetime'])
+      let firstWhenString:DateString = new DateString(conversationJson['create_time'])
 
-      // const conversation:Conversation = {
-      //   turns:[],
-      //   platform: 'perplexity',
-      //   identifier: conversationJson.entries[0]['thread_url_slug'],
-      //   started:firstWhenString,
-      //   ended:firstWhenString,
-      //   metadata: null
-      // }
+      const conversation:Conversation = {
+        turns:[],
+        platform: 'chatgpt',
+        identifier: conversationJson['conversation_id'],
+        started: firstWhenString,
+        ended:firstWhenString,
+        metadata: conversationJson // TODO: Pull out so only populated on debug=true
+      }
 
-      // const entryIndex = 0
+      const convoIds = ['client-created-root']
 
-      // for (const entry of conversationJson.entries) { // Each entry is a question and answer pair
-      //   let when = new Date(entry.entry_updated_datetime)
+      while (convoIds.length > 0) {
+        const convoId = convoIds.shift()
 
-      //   if (entry.updated_us !== undefined) {
-      //     when = new Date(entry.updated_us / 1000)
-      //   }
+        const turnJson = conversationJson['mapping'][convoId]
 
-      //   const whenString = new DateString(when.toISOString())
+        if (turnJson !== undefined) {
+          let createTime = firstWhenString
 
-      //   if (entryIndex === 0) {
-      //     firstWhen = when
-      //     firstWhenString = whenString
+          if (turnJson.message !== null) {
+            if (turnJson['create_time'] !== null) {
+              createTime = new DateString(`${turnJson['create_time'] * 1000}`)
+            }
 
-      //     conversation['started'] = whenString
-      //   }
+            const turn:Turn = {
+              speaker: turnJson.message.author.role,
+              when: createTime,
+              identifier: turnJson.message.id,
+              'content*': null,
+              'metadata*': turnJson,
+              'parent': turnJson.parent,
+            }
 
-      //   if (when > latestDate) {
-      //     latestDate = when
-      //   }
+            if (turnJson.message.content.parts !== undefined) {
+              turn['content*'] = turnJson.message.content.parts.join('\n')
+            } else if (turnJson.message.content.text !== undefined) {
+              turn['content*'] = turnJson.message.content.text
+            }
 
-      //   conversation['ended'] = whenString
+            if (turnJson.metadata !== undefined) {
+              if (turnJson.metadata['search_result_groups'] !== undefined) {
+                const search:Search = {
+                    platform: 'chatgpt',
+                    'query*': '?',
+                    type: 'web',
+                    results: []
+                }
 
-      //   const responseMetadata = {}
+                for (const searchGroup of turnJson.metadata['search_result_groups']) {
+                  for (const entry in searchGroup.entries) {
+                    search.results.push({
+                      title: entry['title'],
+                      url: entry['url'],
+                      preview: entry['snippet'],
+                      index: entry['ref_id']['ref_index'],
+                      metadata: entry,
+                    })
+                  }
+                }
 
-      //   const citations:Citation[] = []
+                turn.search = search
+              }
 
-      //   const search:Search = {
-      //     platform: 'perplexity',
-      //     'query*': '',
-      //     type: '',
-      //     results: [],
-      //   }
+              if (turnJson.metadata['content_references'] !== undefined) {
+                turn.citations = []
 
-      //   if (entry.text !== undefined) {
-      //     const stepsContent = JSON.parse(entry.text) as []
+                for (const contentReference of turnJson.metadata['content_references']) {
+                  for (const item of contentReference['items']) {
+                    const citation:Citation = {
+                      title: item.title,
+                      url: item.url,
+                      source: item.attribution
+                    }
 
-      //     for (const step of stepsContent) {
-      //       if (step['step_type'] === 'INITIAL_QUERY') {
-      //         const turn:Turn = {
-      //           speaker: entry['author_username'],
-      //           when: whenString,
-      //           'content*': step['content']['query'],
-      //           identifier: 'uuid:',
-      //           'metadata*': {
-      //             INITIAL_QUERY: step
-      //           }
-      //         }
+                    if (item.attributions !== null) {
+                      citation.source = item.attributions.join(', ')
+                    }
 
-      //         conversation.turns.push(turn)
-      //       } else if (step['step_type'] === 'SEARCH_WEB') {
-      //         for (const query of step['content']['queries'] as []) {
-      //           if (search['query*'] !== '') {
-      //             search['query*'] += '; '
-      //           }
+                    turn.citations.push(citation)
+                  }
+                }
+              }
+            }
 
-      //           search['query*'] += query['query']
+            conversation.turns.push(turn)
+          }
 
-      //           if (search['type'] !== '') {
-      //             search['type'] += '; '
-      //           }
+          for (const childId of turnJson.children) {
+            convoIds.push(childId)
+          }
 
-      //           search['type'] += query['engine']
-      //         }
+        }
+      }
 
-      //         responseMetadata['SEARCH_WEB'] = step
-      //       } else if (step['step_type'] === 'SEARCH_RESULTS') {
-      //         let index = 0
+      const lastUpdateKey = `${conversation.platform}-${conversation.identifier}-last-update`
 
-      //         for (const webResult of step['content']['web_results'] as []) {
-      //           const result:Result = {
-      //             title: webResult['name'],
-      //             url: webResult['url'],
-      //             preview: webResult['snippet'],
-      //             index,
-      //             metadata: webResult
-      //           }
+      const message = {
+        messageType: 'fetchValue',
+        key: lastUpdateKey
+      }
 
-      //           search.results.push(result)
+      rexCorePlugin.handleMessage(message, this, (response) => {
+        let timestamp = 0
 
-      //           let citationDomainName:string|undefined = webResult['meta_data']['citation_domain_name']
+        if (response !== null) {
+          timestamp = response
+        }
 
-      //           if (citationDomainName === undefined) { // TODO - write test
-      //             citationDomainName = 'perplexity.unknown:citation_domain_name'
-      //           }
+        console.log(`[rex-spider-chatgpt] TS TEST ${timestamp} <? ${latestDate.valueOf()}`)
 
-      //           const citation:Citation = {
-      //             title: webResult['name'],
-      //             url: webResult['url'],
-      //             source: citationDomainName,
-      //           }
+        if (timestamp < latestDate.valueOf()) {
+          const payload:EventPayload = {
+            name: 'rex-conversation',
+            date: firstWhen,
+            ...conversation
+          }
 
-      //           citations.push(citation)
+          console.log(`[rex-spider-chatgpt] log:`)
+          console.log(payload)
 
-      //           index += 1
-      //         }
+          const storeMessage = {
+            messageType: 'storeValue',
+            key: lastUpdateKey,
+            value: latestDate.valueOf()
+          }
 
-      //         responseMetadata['SEARCH_RESULTS'] = step
+          rexCorePlugin.handleMessage(storeMessage, this, (response) => { // eslint-disable-line @typescript-eslint/no-unused-vars
+            console.log(`[rex-spider-chatgpt] ${lastUpdateKey} = ${latestDate.valueOf()}`)
 
-      //       } else if (step['step_type'] === 'FINAL') {
-      //         responseMetadata['FINAL'] = step
+            resolve(payload)
+          })
 
-      //         const answer = JSON.parse(step['content']['answer'])
-
-      //         const turn:Turn = {
-      //           speaker: `perplexity:${entry['author_username']}`,
-      //           when: whenString,
-      //           'content*': answer['answer'],
-      //           identifier: 'uuid:',
-      //           'metadata*': responseMetadata,
-      //         }
-
-      //         if (search['query*'] !== '') {
-      //           turn['search'] =  search
-      //         }
-
-      //         if (citations.length > 0) {
-      //           turn['citations'] =  citations
-      //         }
-
-      //         conversation.turns.push(turn)
-      //       }
-      //     }
-      //   } else if (entry['step_type'] !== undefined) {
-      //     const turn:Turn = {
-      //       speaker: entry['author_username'],
-      //       when: whenString,
-      //       'content*': entry['query_str'],
-      //       identifier: `uuid:${entry['uuid']}`,
-      //       'metadata*': entry
-      //     }
-
-      //     conversation.turns.push(turn)
-
-      //     for (const block of entry.blocks) {
-      //       if (block['intended_usage'] === 'sources_answer_mode') {
-      //         let index = 0
-
-      //         for (const webResult of block['sources_mode_block']['web_results']) {
-      //           const result:Result = {
-      //             title: webResult['name'],
-      //             url: webResult['url'],
-      //             preview: webResult['snippet'],
-      //             index,
-      //             metadata: webResult
-      //           }
-
-      //           search.results.push(result)
-
-      //           const citation:Citation = {
-      //             title: webResult['name'],
-      //             url: webResult['url'],
-      //             source: webResult['meta_data']['citation_domain_name']
-      //           }
-
-      //           citations.push(citation)
-
-      //           index += 1
-      //         }
-      //       } else if (block['intended_usage'] === 'pro_search_steps') {
-      //         for (const searchStep of block['plan_block']['steps']) {
-      //           if (searchStep['step_type'] === 'SEARCH_WEB') {
-      //             for (const searchQuery of searchStep['search_web_content']['queries']) {
-      //               if (search['query*'] !== '') {
-      //                 search['query*'] += '; '
-      //               }
-
-      //               search['query*'] += searchQuery['query']
-
-      //               if (search['type'].includes(searchQuery['engine']) === false) {
-      //                 if (search['type'] !== '') {
-      //                   search['type'] += '; '
-      //                 }
-
-      //                 search['type'] += searchQuery['engine']
-      //               }
-      //             }
-      //           }
-      //         }
-      //       } else if (block['intended_usage'] === 'ask_text') {
-      //         const response:Turn = {
-      //           speaker: `perplexity:${entry['user_selected_model']}`,
-      //           when: whenString,
-      //           'content*': block['markdown_block']['answer'],
-      //           identifier: `uuid:${entry['uuid']}`,
-      //           'metadata*': block
-      //         }
-
-      //         conversation.turns.push(response)
-      //       }
-      //     }
-
-      //     if (search['query*'] !== '') {
-      //       conversation.turns[conversation.turns.length - 1]['search'] = search
-      //     }
-
-      //     if (citations.length > 0) {
-      //       conversation.turns[conversation.turns.length - 1]['citations'] = citations
-      //     }
-      //   }
-
-      //   if (when > latestDate) {
-      //     latestDate = when
-      //   }
-      // }
-
-      // const lastUpdateKey = `${conversation.platform}-${conversation.identifier}-last-update`
-
-      // const message = {
-      //   messageType: 'fetchValue',
-      //   key: lastUpdateKey
-      // }
-
-      // rexCorePlugin.handleMessage(message, this, (response) => {
-      //   let timestamp = 0
-
-      //   if (response !== null) {
-      //     timestamp = response
-      //   }
-
-      //   console.log(`[rex-spider-perplexity] TS TEST ${timestamp} <? ${latestDate.valueOf()}`)
-
-      //   if (timestamp < latestDate.valueOf()) {
-      //     const payload:EventPayload = {
-      //       name: 'rex-conversation',
-      //       date: firstWhen,
-      //       ...conversation
-      //     }
-
-      //     console.log(`[rex-spider-perplexity] log:`)
-      //     console.log(payload)
-
-      //     const storeMessage = {
-      //       messageType: 'storeValue',
-      //       key: lastUpdateKey,
-      //       value: latestDate.valueOf()
-      //     }
-
-      //     rexCorePlugin.handleMessage(storeMessage, this, (response) => { // eslint-disable-line @typescript-eslint/no-unused-vars
-      //       console.log(`[rex-spider-perplexity] ${lastUpdateKey} = ${latestDate.valueOf()}`)
-
-      //       resolve(payload)
-      //     })
-
-      //     return
-      //   }
-      // })
-
-      resolve(null)
+          return
+        } else {
+          resolve(null)
+        }
+      })
     })
   }
 }
