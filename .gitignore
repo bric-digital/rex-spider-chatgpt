@@ -150,6 +150,5 @@ tests/list-utilities.bundle.js
 tests/list-utilities.bundle.js.map
 tests/.playwright/
 
-docs/
-
 .worktrees/
+docs/
