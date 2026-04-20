@@ -274,6 +274,30 @@ export class REXChatGPTSpider extends REXSpider {
     })
   }
 
+  private fetchLastUpdate(conversationId: string): Promise<number | null> {
+    return new Promise((resolve) => {
+      const key = `chatgpt-${conversationId}-last-update`
+      rexCorePlugin.handleMessage({ messageType: 'fetchValue', key }, this, (response) => {
+        if (typeof response === 'number') {
+          resolve(response)
+        } else {
+          resolve(null)
+        }
+      })
+    })
+  }
+
+  private storeLastUpdate(conversationId: string, listingUpdateMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      const key = `chatgpt-${conversationId}-last-update`
+      rexCorePlugin.handleMessage(
+        { messageType: 'storeValue', key, value: listingUpdateMs },
+        this,
+        () => resolve()
+      )
+    })
+  }
+
   private updateTimeMs(raw: unknown): number | null {
     if (typeof raw === 'number') {
       // /backend-api/conversations uses Unix epoch seconds (fractional allowed).
