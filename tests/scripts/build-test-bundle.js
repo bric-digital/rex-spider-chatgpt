@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Build script to bundle list-utilities.mts for browser testing
- * Uses esbuild to create a single browser-compatible bundle
+ * Build script to bundle test-target modules for browser testing.
+ * Uses esbuild to create browser-compatible bundles.
  */
 
 import * as esbuild from 'esbuild'
@@ -12,23 +12,27 @@ import { dirname, join } from 'path'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-const inputFile = join(__dirname, '../../src/browser.mts')
-const outputFile = join(__dirname, '../src/build/browser.bundle.js')
+const browserInput = join(__dirname, '../../src/browser.mts')
+const browserOutput = join(__dirname, '../src/build/browser.bundle.js')
+
+const crawlTargetInput = join(__dirname, '../../src/crawl-target.mts')
+const crawlTargetOutput = join(__dirname, '../src/build/crawl-target.bundle.js')
+
+const shared = {
+  bundle: true,
+  format: 'esm',
+  platform: 'browser',
+  target: 'es2021',
+  sourcemap: true
+}
 
 try {
-  await esbuild.build({
-    entryPoints: [inputFile],
-    bundle: true,
-    format: 'esm',
-    platform: 'browser',
-    target: 'es2021',
-    outfile: outputFile,
-    sourcemap: true
-  })
-
-  console.log('✅ Bundle created successfully:', outputFile)
-  console.log('   You can now run: npm test')
+  await esbuild.build({ ...shared, entryPoints: [browserInput], outfile: browserOutput })
+  await esbuild.build({ ...shared, entryPoints: [crawlTargetInput], outfile: crawlTargetOutput })
+  console.log('Bundles created:')
+  console.log(' ', browserOutput)
+  console.log(' ', crawlTargetOutput)
 } catch (error) {
-  console.error('❌ Build failed:', error)
+  console.error('Build failed:', error)
   process.exit(1)
 }

@@ -3,6 +3,8 @@ import { Conversation, Turn, DateString, Citation, Search, Result } from '@bric/
 import rexCorePlugin, { EventPayload, dispatchEvent } from '@bric/rex-core/service-worker'
 import rexSpiderPlugin, { REXSpider } from '@bric/rex-spider/service-worker'
 
+import { CrawlTarget, shouldCrawl } from './crawl-target.mjs'
+
 export class REXChatGPTSpider extends REXSpider {
   sleepDelayMs:number = 10000
   lookbackDays:number = 30
@@ -195,8 +197,10 @@ export class REXChatGPTSpider extends REXSpider {
                       if (projectResult.partialFailure) {
                         console.log(`[rex-spider-chatgpt] Project enumeration hit a partial failure — using whatever was collected.`)
                       }
-                      for (const url of projectResult.toCrawl) {
-                        if (!toCrawl.includes(url)) toCrawl.push(url)
+                      for (const target of projectResult.toCrawl) {
+                        if (!toCrawl.some((t) => t.conversationId === target.conversationId)) {
+                          toCrawl.push(target)
+                        }
                       }
 
                       let crawledCount = 0
@@ -212,51 +216,53 @@ export class REXChatGPTSpider extends REXSpider {
                       }
 
                       const fetchConvo = () => {
-                              if (toCrawl.length == 0) {
-                                this.syncing = false
+                        if (toCrawl.length == 0) {
+                          this.syncing = false
+                          this.dispatchCompletionEvent(crawledCount)
+                          resolve(false)
+                          return
+                        }
 
-                                this.dispatchCompletionEvent(crawledCount)
-                                resolve(false)
-                              } else {
-                                self.setTimeout(() => {
-                                  const nextUrl = toCrawl.shift()
+                        self.setTimeout(() => {
+                          const next = toCrawl.shift()!
+                          console.log(`[rex-spider-chatgpt] Crawl: ${next.url}`)
 
-                                  console.log(`[rex-spider-chatgpt] Crawl: ${nextUrl}`)
-
-                                  fetch(nextUrl, {
-                                    method: 'GET',
-                                    headers: {
-                                      'Authorization': `Bearer ${this.accessToken}`
-                                    }
-                                  })
-                                    .then((convoResponse: Response) => {
-                                      if (convoResponse.ok) {
-                                        convoResponse.json().then((result) => {
-                                          this.parseConversation(result).then((payload) => {
-                                            console.log(`[rex-spider-chatgpt] log:`)
-                                            console.log(payload)
-
-                                            if (payload !== null) {
-                                              dispatchEvent(payload)
-                                              crawledCount += 1
-                                            }
-
-                                            fetchConvo()
-                                          })
-                                        })
-                                      } else {
-                                        console.log(`[rex-spider-chatgpt] Crawl failed ${nextUrl}. Response:`)
-                                        console.log(convoResponse)
-
-                                        this.syncing = false
-
-                                        this.dispatchCompletionEvent(crawledCount)
-                                        resolve(true) // Error - fall back to DOM scraping...
-                                      }
-                                    })
-                                }, this.sleepDelayMs)
-                              }
+                          fetch(next.url, {
+                            method: 'GET',
+                            headers: {
+                              'Authorization': `Bearer ${this.accessToken}`
                             }
+                          })
+                            .then((convoResponse: Response) => {
+                              if (convoResponse.ok) {
+                                convoResponse.json().then((result) => {
+                                  this.parseConversation(result).then((payload) => {
+                                    console.log(`[rex-spider-chatgpt] log:`)
+                                    console.log(payload)
+
+                                    if (payload !== null) {
+                                      dispatchEvent(payload)
+                                      crawledCount += 1
+                                      this.storeLastUpdate(next.conversationId, next.listingUpdateMs)
+                                        .catch((err) => console.log(`[rex-spider-chatgpt] storeLastUpdate failed for ${next.conversationId}:`, err))
+                                        .finally(() => fetchConvo())
+                                      return
+                                    }
+
+                                    fetchConvo()
+                                  })
+                                })
+                              } else {
+                                console.log(`[rex-spider-chatgpt] Crawl failed ${next.url}. Response:`)
+                                console.log(convoResponse)
+
+                                this.syncing = false
+                                this.dispatchCompletionEvent(crawledCount)
+                                resolve(true) // Error - fall back to DOM scraping...
+                              }
+                            })
+                        }, this.sleepDelayMs)
+                      }
 
                       fetchConvo()
                     })
@@ -271,6 +277,30 @@ export class REXChatGPTSpider extends REXSpider {
             })
         })
       })
+    })
+  }
+
+  private fetchLastUpdate(conversationId: string): Promise<number | null> {
+    return new Promise((resolve) => {
+      const key = `chatgpt-${conversationId}-last-update`
+      rexCorePlugin.handleMessage({ messageType: 'fetchValue', key }, this, (response) => {
+        if (typeof response === 'number') {
+          resolve(response)
+        } else {
+          resolve(null)
+        }
+      })
+    })
+  }
+
+  private storeLastUpdate(conversationId: string, listingUpdateMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      const key = `chatgpt-${conversationId}-last-update`
+      rexCorePlugin.handleMessage(
+        { messageType: 'storeValue', key, value: listingUpdateMs },
+        this,
+        () => resolve()
+      )
     })
   }
 
@@ -309,9 +339,9 @@ export class REXChatGPTSpider extends REXSpider {
     return cutoff
   }
 
-  private async pageIndex(accessToken: string, cutoff: number): Promise<{ toCrawl: string[], firstPageFailed: boolean }> {
+  private async pageIndex(accessToken: string, cutoff: number): Promise<{ toCrawl: CrawlTarget[], firstPageFailed: boolean }> {
     const pageSize = 28
-    const toCrawl: string[] = []
+    const toCrawl: CrawlTarget[] = []
 
     let offset = 0
     let pageIndex = 0
@@ -342,8 +372,15 @@ export class REXChatGPTSpider extends REXSpider {
         if (itemUpdateMs === null) continue
         if (itemUpdateMs >= cutoff) {
           if (item.id !== undefined) {
+            const stored = await this.fetchLastUpdate(item.id)
+            if (!shouldCrawl(itemUpdateMs, stored)) {
+              console.log(`[rex-spider-chatgpt] Skipping ${item.id} — listing update_time (${itemUpdateMs}) not newer than stored (${stored})`)
+              continue
+            }
             const fullUrl = `https://chatgpt.com/backend-api/conversation/${item.id}`
-            if (!toCrawl.includes(fullUrl)) toCrawl.push(fullUrl)
+            if (!toCrawl.some((t) => t.conversationId === item.id)) {
+              toCrawl.push({ url: fullUrl, listingUpdateMs: itemUpdateMs, conversationId: item.id })
+            }
           }
         } else {
           stop = true
@@ -365,9 +402,9 @@ export class REXChatGPTSpider extends REXSpider {
   private async pageProjectIndex(
     accessToken: string,
     cutoff: number,
-    existingUrls: string[]
-  ): Promise<{ toCrawl: string[], partialFailure: boolean }> {
-    const toCrawl: string[] = []
+    existingTargets: CrawlTarget[]
+  ): Promise<{ toCrawl: CrawlTarget[], partialFailure: boolean }> {
+    const toCrawl: CrawlTarget[] = []
 
     try {
       // Step 1: list projects via the gizmos sidebar.
@@ -451,9 +488,17 @@ export class REXChatGPTSpider extends REXSpider {
             if (itemUpdateMs === null) continue
             if (itemUpdateMs >= cutoff) {
               if (item.id !== undefined) {
+                const stored = await this.fetchLastUpdate(item.id)
+                if (!shouldCrawl(itemUpdateMs, stored)) {
+                  console.log(`[rex-spider-chatgpt] Skipping project convo ${item.id} — listing update_time (${itemUpdateMs}) not newer than stored (${stored})`)
+                  continue
+                }
                 const fullUrl = `https://chatgpt.com/backend-api/conversation/${item.id}`
-                if (!toCrawl.includes(fullUrl) && !existingUrls.includes(fullUrl)) {
-                  toCrawl.push(fullUrl)
+                const alreadyQueued =
+                  existingTargets.some((t) => t.conversationId === item.id) ||
+                  toCrawl.some((t) => t.conversationId === item.id)
+                if (!alreadyQueued) {
+                  toCrawl.push({ url: fullUrl, listingUpdateMs: itemUpdateMs, conversationId: item.id })
                 }
               }
             } else {
@@ -512,6 +557,11 @@ export class REXChatGPTSpider extends REXSpider {
           if (turnJson.message !== null) {
             if (turnJson['create_time'] !== null) {
               createTime = new DateString(`${turnJson['create_time'] * 1000}`)
+              const turnDate = new Date(turnJson['create_time'] * 1000)
+              if (turnDate > latestDate) {
+                latestDate = turnDate
+                conversation.ended = createTime
+              }
             }
 
             const turn:Turn = {
@@ -584,49 +634,13 @@ export class REXChatGPTSpider extends REXSpider {
         }
       }
 
-      const lastUpdateKey = `${conversation.platform}-${conversation.identifier}-last-update`
-
-      const message = {
-        messageType: 'fetchValue',
-        key: lastUpdateKey
+      const payload: EventPayload = {
+        name: 'rex-conversation',
+        date: firstWhen,
+        ...conversation
       }
 
-      rexCorePlugin.handleMessage(message, this, (response) => {
-        let timestamp = 0
-
-        if (response !== null) {
-          timestamp = response
-        }
-
-        console.log(`[rex-spider-chatgpt] TS TEST ${timestamp} <? ${latestDate.valueOf()}`)
-
-        if (timestamp < latestDate.valueOf()) {
-          const payload:EventPayload = {
-            name: 'rex-conversation',
-            date: firstWhen,
-            ...conversation
-          }
-
-          console.log(`[rex-spider-chatgpt] log:`)
-          console.log(payload)
-
-          const storeMessage = {
-            messageType: 'storeValue',
-            key: lastUpdateKey,
-            value: latestDate.valueOf()
-          }
-
-          rexCorePlugin.handleMessage(storeMessage, this, (response) => { // eslint-disable-line @typescript-eslint/no-unused-vars
-            console.log(`[rex-spider-chatgpt] ${lastUpdateKey} = ${latestDate.valueOf()}`)
-
-            resolve(payload)
-          })
-
-          return
-        } else {
-          resolve(null)
-        }
-      })
+      resolve(payload)
     })
   }
 }

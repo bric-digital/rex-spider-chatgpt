@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>rex-spider-chatgpt: crawl-target helper test</title>
+</head>
+<body>
+  <script type="module">
+    import { shouldCrawl } from './build/crawl-target.bundle.js'
+    window.shouldCrawl = shouldCrawl
+    window.crawlTargetReady = true
+  </script>
+</body>
+</html>
