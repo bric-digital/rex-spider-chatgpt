@@ -1,4 +1,4 @@
-import { Conversation, Turn, DateString, Citation, Search, Result } from '@bric/rex-types/types'
+import { Conversation, Turn, DateString, Citation, Search } from '@bric/rex-types/types'
 
 import rexCorePlugin, { EventPayload, dispatchEvent } from '@bric/rex-core/service-worker'
 import rexSpiderPlugin, { REXSpider } from '@bric/rex-spider/service-worker'
@@ -6,13 +6,13 @@ import rexSpiderPlugin, { REXSpider } from '@bric/rex-spider/service-worker'
 import { CrawlTarget, shouldCrawl } from './crawl-target.mjs'
 
 export class REXChatGPTSpider extends REXSpider {
-  sleepDelayMs:number = 10000
-  lookbackDays:number = 30
-  maxIndexPages:number = 50
-  syncing:boolean = false
-  lastSync:number = 0
-  syncPeriod:number = 300000
-  accessToken:string|null = null
+  sleepDelayMs: number = 10000
+  lookbackDays: number = 30
+  maxIndexPages: number = 50
+  syncing: boolean = false
+  lastSync: number = 0
+  syncPeriod: number = 300000
+  accessToken: string | null = null
 
   constructor() {
     super()
@@ -79,11 +79,13 @@ export class REXChatGPTSpider extends REXSpider {
             response.text().then((rawHtml) => {
               const lines = rawHtml.match(/[^\r\n]+/g)
 
-              for (const line of lines) {
-                if (line.includes('"accessToken"')) {
-                  console.log(`[rex-spider-chatgpt] accessToken present.`)
+              if (lines !== null) {
+                for (const line of lines) {
+                  if (line.includes('"accessToken"')) {
+                    console.log(`[rex-spider-chatgpt] accessToken present.`)
 
-                  resolve(true)
+                    resolve(true)
+                  }
                 }
               }
 
@@ -149,8 +151,9 @@ export class REXChatGPTSpider extends REXSpider {
               }
 
               response.text().then((rawHtml) => {
-                  const lines = rawHtml.match(/[^\r\n]+/g)
+                const lines = rawHtml.match(/[^\r\n]+/g)
 
+                if (lines !== null) {
                   for (const line of lines) {
                     if (line.includes('"accessToken"')) {
                       console.log(`[rex-spider-chatgpt] accessToken present.`)
@@ -168,19 +171,21 @@ export class REXChatGPTSpider extends REXSpider {
                       }
                     }
                   }
+                }
 
-                  if (this.accessToken === null) {
-                    console.log(`[rex-spider-chatgpt] No access token — user is not logged in.`)
-                    this.syncing = false
-                    this.dispatchCompletionEvent(0)
-                    resolve(true) // Not logged in — fall back to DOM scraping...
-                    return
-                  }
+                if (this.accessToken === null) {
+                  console.log(`[rex-spider-chatgpt] No access token — user is not logged in.`)
+                  this.syncing = false
+                  this.dispatchCompletionEvent(0)
+                  resolve(true) // Not logged in — fall back to DOM scraping...
+                  return
+                }
 
-                  console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
+                console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
 
-                    this.pagingCutoff().then((cutoff) => {
-                      this.pageIndex(this.accessToken, cutoff).then(async (pagingResult) => {
+                this.pagingCutoff().then((cutoff) => {
+                  if (this.accessToken !== null) {
+                    this.pageIndex(this.accessToken, cutoff).then(async (pagingResult) => {
                       if (pagingResult.firstPageFailed) {
                         this.syncing = false
                         this.dispatchCompletionEvent(0)
@@ -190,18 +195,24 @@ export class REXChatGPTSpider extends REXSpider {
 
                       const toCrawl = pagingResult.toCrawl
 
-                      // Also page conversations that live inside Projects (gizmos).
-                      // A partial failure here is non-fatal: whatever project URLs we did
-                      // collect are still appended, and loose conversations already crawled.
-                      const projectResult = await this.pageProjectIndex(this.accessToken, cutoff, toCrawl)
-                      if (projectResult.partialFailure) {
-                        console.log(`[rex-spider-chatgpt] Project enumeration hit a partial failure — using whatever was collected.`)
-                      }
-                      for (const target of projectResult.toCrawl) {
-                        if (!toCrawl.some((t) => t.conversationId === target.conversationId)) {
-                          toCrawl.push(target)
+                      if (this.accessToken !== null) {
+                        // Also page conversations that live inside Projects (gizmos).
+                        // A partial failure here is non-fatal: whatever project URLs we did
+                        // collect are still appended, and loose conversations already crawled.
+                        const projectResult = await this.pageProjectIndex(this.accessToken, cutoff, toCrawl)
+
+                        if (projectResult.partialFailure) {
+                          console.log(`[rex-spider-chatgpt] Project enumeration hit a partial failure — using whatever was collected.`)
                         }
+
+                        for (const target of projectResult.toCrawl) {
+                          if (!toCrawl.some((t) => t.conversationId === target.conversationId)) {
+                            toCrawl.push(target)
+                          }
+                        }
+
                       }
+
 
                       let crawledCount = 0
 
@@ -266,8 +277,10 @@ export class REXChatGPTSpider extends REXSpider {
 
                       fetchConvo()
                     })
-                    })
+
+                  }
                 })
+              })
             })
             .catch((err) => {
               console.log(`[rex-spider-chatgpt] Unexpected error during sync:`, err)
@@ -524,23 +537,23 @@ export class REXChatGPTSpider extends REXSpider {
     }
   }
 
-  parseConversation(conversationJson):Promise<any|null> {
+  parseConversation(conversationJson: any): Promise<any | null> { // eslint-disable-line @typescript-eslint/no-explicit-any
     return new Promise((resolve) => {
       console.log(`[rex-spider-chatgpt] parseConversation:`)
       console.log(conversationJson)
 
-      let firstWhen = new Date(conversationJson['create_time'] * 1000)
+      const firstWhen = new Date(conversationJson['create_time'] * 1000)
 
       let latestDate = firstWhen
 
-      let firstWhenString:DateString = new DateString(conversationJson['create_time'])
+      const firstWhenString: DateString = new DateString(conversationJson['create_time'])
 
-      const conversation:Conversation = {
-        turns:[],
+      const conversation: Conversation = {
+        turns: [],
         platform: 'chatgpt',
         identifier: conversationJson['conversation_id'],
         started: firstWhenString,
-        ended:firstWhenString,
+        ended: firstWhenString,
         metadata: conversationJson // TODO: Pull out so only populated on debug=true
       }
 
@@ -549,89 +562,93 @@ export class REXChatGPTSpider extends REXSpider {
       while (convoIds.length > 0) {
         const convoId = convoIds.shift()
 
-        const turnJson = conversationJson['mapping'][convoId]
+        if (convoId !== undefined) {
+          const turnJson = conversationJson['mapping'][convoId]
 
-        if (turnJson !== undefined) {
-          let createTime = firstWhenString
+          if (turnJson !== undefined) {
+            let createTime = firstWhenString
 
-          if (turnJson.message !== null) {
-            if (turnJson['create_time'] !== null) {
-              createTime = new DateString(`${turnJson['create_time'] * 1000}`)
-              const turnDate = new Date(turnJson['create_time'] * 1000)
-              if (turnDate > latestDate) {
-                latestDate = turnDate
-                conversation.ended = createTime
+            if (turnJson.message !== null) {
+              if (turnJson['create_time'] !== null) {
+                createTime = new DateString(`${turnJson['create_time'] * 1000}`)
+                const turnDate = new Date(turnJson['create_time'] * 1000)
+                if (turnDate > latestDate) {
+                  latestDate = turnDate
+                  conversation.ended = createTime
+                }
               }
-            }
 
-            const turn:Turn = {
-              speaker: turnJson.message.author.role,
-              when: createTime,
-              identifier: turnJson.message.id,
-              'content*': null,
-              'metadata*': turnJson,
-              'parent': turnJson.parent,
-            }
+              const turn: Turn = {
+                speaker: turnJson.message.author.role,
+                when: createTime,
+                identifier: turnJson.message.id,
+                'content*': '',
+                'metadata*': turnJson,
+                'parent': turnJson.parent,
+              }
 
-            if (turnJson.message.content.parts !== undefined) {
-              turn['content*'] = turnJson.message.content.parts.join('\n')
-            } else if (turnJson.message.content.text !== undefined) {
-              turn['content*'] = turnJson.message.content.text
-            }
+              if (turnJson.message.content.parts !== undefined) {
+                turn['content*'] = turnJson.message.content.parts.join('\n')
+              } else if (turnJson.message.content.text !== undefined) {
+                turn['content*'] = turnJson.message.content.text
+              }
 
-            if (turnJson.metadata !== undefined) {
-              if (turnJson.metadata['search_result_groups'] !== undefined) {
-                const search:Search = {
+              if (turnJson.metadata !== undefined) {
+                if (turnJson.metadata['search_result_groups'] !== undefined) {
+                  const search: Search = {
                     platform: 'chatgpt',
                     'query*': '?',
                     type: 'web',
                     results: []
+                  }
+
+                  for (const searchGroup of turnJson.metadata['search_result_groups']) {
+                    for (const entry of (searchGroup.entries as any[])) { // eslint-disable-line @typescript-eslint/no-explicit-any
+                      search.results.push({
+                        title: entry['title'],
+                        url: entry['url'],
+                        preview: entry['snippet'],
+                        index: entry['ref_id']['ref_index'],
+                        metadata: entry,
+                      })
+                    }
+                  }
+
+                  turn.search = search
                 }
 
-                for (const searchGroup of turnJson.metadata['search_result_groups']) {
-                  for (const entry in searchGroup.entries) {
-                    search.results.push({
-                      title: entry['title'],
-                      url: entry['url'],
-                      preview: entry['snippet'],
-                      index: entry['ref_id']['ref_index'],
-                      metadata: entry,
-                    })
+                if (turnJson.metadata['content_references'] !== undefined) {
+                  turn.citations = []
+
+                  for (const contentReference of turnJson.metadata['content_references']) {
+                    for (const item of contentReference['items']) {
+                      const citation: Citation = {
+                        title: item.title,
+                        url: item.url,
+                        source: item.attribution
+                      }
+
+                      if (item.attributions !== null) {
+                        citation.source = item.attributions.join(', ')
+                      }
+
+                      turn.citations.push(citation)
+                    }
                   }
                 }
-
-                turn.search = search
               }
 
-              if (turnJson.metadata['content_references'] !== undefined) {
-                turn.citations = []
-
-                for (const contentReference of turnJson.metadata['content_references']) {
-                  for (const item of contentReference['items']) {
-                    const citation:Citation = {
-                      title: item.title,
-                      url: item.url,
-                      source: item.attribution
-                    }
-
-                    if (item.attributions !== null) {
-                      citation.source = item.attributions.join(', ')
-                    }
-
-                    turn.citations.push(citation)
-                  }
-                }
-              }
+              conversation.turns.push(turn)
             }
 
-            conversation.turns.push(turn)
-          }
+            for (const childId of turnJson.children) {
+              convoIds.push(childId)
+            }
 
-          for (const childId of turnJson.children) {
-            convoIds.push(childId)
           }
 
         }
+
       }
 
       const payload: EventPayload = {

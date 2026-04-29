@@ -12,15 +12,15 @@ export class REXChatGPTContentSpider extends REXContentSpider {
   }
 
   urlMatches(url:string): boolean {
-    if (window.location.href.toLowerCase() === 'https://chatgpt.com/#checkLogin') {
+    if (url.toLowerCase() === 'https://chatgpt.com/#checkLogin') {
       return true // Login check page
     }
 
-    if (window.location.href.toLowerCase() === 'https://chatgpt.com/') {
+    if (url.toLowerCase() === 'https://chatgpt.com/') {
       return true // Library page
     }
 
-    if (window.location.href.toLowerCase().startsWith('https://chatgpt.com')) {
+    if (url.toLowerCase().startsWith('https://chatgpt.com')) {
       return true // Conversation page
     }
 
@@ -59,18 +59,20 @@ export class REXChatGPTContentSpider extends REXContentSpider {
         return
       } else if (window.location.href.toLowerCase() === 'https://chatgpt.com/') {
         console.log(`${this.name()}: Looking for links...`)
-        let urls = []
+        const urls:string[] = []
 
         $('button[data-testid="open-sidebar-button"]').trigger('click')
 
         window.setTimeout(() => {
           $('a').each((index, item) => {
-            const href = $(item).attr('href')
+            const href:string|undefined = $(item).attr('href')
 
-            console.log(`${this.name()}: checking ${href}...`)
+            if (href !== undefined) {
+              console.log(`${this.name()}: checking ${href}...`)
 
-            if (href.startsWith('/c/')) {
-              urls.push(`https://chatgpt.com${href}`)
+              if (href.startsWith('/c/')) {
+                urls.push(`https://chatgpt.com${href}`)
+              }
             }
           })
 
@@ -83,7 +85,7 @@ export class REXChatGPTContentSpider extends REXContentSpider {
 
         return
       } else if (window.location.href.toLowerCase().startsWith('https://chatgpt.com/c/')) {
-        let conversation = []
+        const conversation:any[] = [] // eslint-disable-line  @typescript-eslint/no-explicit-any
 
         $('article').each((index, item) => {
           if ($(item).attr('data-turn') === 'user') {
