@@ -571,7 +571,7 @@ export class REXChatGPTSpider extends REXSpider {
             if (turnJson.message !== null) {
               const messageCreateTime = turnJson.message.create_time
               if (messageCreateTime !== null && messageCreateTime !== undefined) {
-                createTime = new DateString(`${messageCreateTime * 1000}`)
+                createTime = new DateString(messageCreateTime)
                 const turnDate = new Date(messageCreateTime * 1000)
                 if (turnDate > latestDate) {
                   latestDate = turnDate
