@@ -429,11 +429,11 @@ export class REXChatGPTSpider extends REXSpider {
       let sidebarPageIndex = 0
 
       while (sidebarPageIndex === 0 || (sidebarCursor !== null && sidebarPageIndex < this.maxIndexPages)) {
-        const cursorQs = sidebarCursor === null ? '' : `&cursor=${encodeURIComponent(sidebarCursor)}`
-        const sidebarUrl = `https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=0&limit=20${cursorQs}`
+        const cursorQs:string = sidebarCursor === null ? '' : `&cursor=${encodeURIComponent(sidebarCursor)}`
+        const sidebarUrl:string = `https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=0&limit=20${cursorQs}`
         console.log(`[rex-spider-chatgpt] Project sidebar page ${sidebarPageIndex}: ${sidebarUrl}`)
 
-        const sidebarResp = await fetch(sidebarUrl, {
+        const sidebarResp:Response = await fetch(sidebarUrl, {
           method: 'GET',
           headers: { 'Authorization': `Bearer ${accessToken}` }
         })
@@ -448,7 +448,7 @@ export class REXChatGPTSpider extends REXSpider {
           break
         }
 
-        const sidebarBody = await sidebarResp.json()
+        const sidebarBody:any = await sidebarResp.json() // eslint-disable-line @typescript-eslint/no-explicit-any
 
         // The sidebar response nests the gizmo ID at items[].gizmo.gizmo.id. Fall back to
         // items[].gizmo.id and items[].id so a future API reshape doesn't silently break us.
@@ -460,7 +460,7 @@ export class REXChatGPTSpider extends REXSpider {
           }
         }
 
-        const nextCursor = sidebarBody?.cursor
+        const nextCursor:string|null = sidebarBody?.cursor
         sidebarCursor = typeof nextCursor === 'string' && nextCursor.length > 0 ? nextCursor : null
         sidebarPageIndex += 1
 
