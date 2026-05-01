@@ -272,6 +272,15 @@ export class REXChatGPTSpider extends REXSpider {
                                 resolve(true) // Error - fall back to DOM scraping...
                               }
                             })
+                            .catch((err) => {
+                              // Any throw inside the fetch/json/parse chain (bad payload,
+                              // DateString rejection, etc.) must not leave syncing=true,
+                              // or every subsequent round prints "Still syncing..." and
+                              // the spider is wedged until the service worker restarts.
+                              // Log this conversation as failed and continue with the rest.
+                              console.log(`[rex-spider-chatgpt] Crawl errored for ${next.url}:`, err)
+                              fetchConvo()
+                            })
                         }, this.sleepDelayMs)
                       }
 
