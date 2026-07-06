@@ -37,7 +37,7 @@ export class REXChatGPTSpider extends REXSpider {
       .catch((err) => console.warn('[rex-spider-chatgpt] Failed to read spider config:', err))
   }
 
-  private dispatchCompletionEvent(crawledCount: number): void {
+  private dispatchCompletionEvent(crawledCount: number, accountCompleteReason: 'date-floor' | 'exhausted' | null = null): void {
     // Delay mirrors the rex-history completion pattern: waits for PDK's
     // persist debounce to expire so queued events flush before the signal.
     setTimeout(() => {
@@ -49,6 +49,17 @@ export class REXChatGPTSpider extends REXSpider {
           date: Date.now()
         }
       })
+
+      // Account-complete only accompanies runs that enumerated the full
+      // account (index paging ended at the cutoff or ran out of items, and
+      // every queued conversation was captured) — unlike the per-run event
+      // above, which fires on every exit path including errors and skips.
+      if (accountCompleteReason !== null) {
+        this.signalAccountComplete({
+          reason: accountCompleteReason,
+          crawled_count: crawledCount
+        })
+      }
     }, 1100)
   }
 
@@ -195,6 +206,12 @@ export class REXChatGPTSpider extends REXSpider {
 
                       const toCrawl = pagingResult.toCrawl
 
+                      // Non-null only while this run is still on track to have
+                      // enumerated the entire account (loose conversations AND
+                      // projects). Any cap, page failure, or crawl failure
+                      // clears it, suppressing the account-complete signal.
+                      let accountEndReason = pagingResult.endReason
+
                       if (this.accessToken !== null) {
                         // Also page conversations that live inside Projects (gizmos).
                         // A partial failure here is non-fatal: whatever project URLs we did
@@ -203,6 +220,10 @@ export class REXChatGPTSpider extends REXSpider {
 
                         if (projectResult.partialFailure) {
                           console.log(`[rex-spider-chatgpt] Project enumeration hit a partial failure — using whatever was collected.`)
+                        }
+
+                        if (projectResult.complete === false) {
+                          accountEndReason = null
                         }
 
                         for (const target of projectResult.toCrawl) {
@@ -221,7 +242,7 @@ export class REXChatGPTSpider extends REXSpider {
 
                       if (toCrawl.length === 0) {
                         this.syncing = false
-                        this.dispatchCompletionEvent(0)
+                        this.dispatchCompletionEvent(0, accountEndReason)
                         resolve(false)
                         return
                       }
@@ -229,7 +250,7 @@ export class REXChatGPTSpider extends REXSpider {
                       const fetchConvo = () => {
                         if (toCrawl.length == 0) {
                           this.syncing = false
-                          this.dispatchCompletionEvent(crawledCount)
+                          this.dispatchCompletionEvent(crawledCount, accountEndReason)
                           resolve(false)
                           return
                         }
@@ -260,6 +281,7 @@ export class REXChatGPTSpider extends REXSpider {
                                       return
                                     }
 
+                                    accountEndReason = null // conversation yielded no payload — account not fully captured
                                     fetchConvo()
                                   })
                                 })
@@ -279,6 +301,7 @@ export class REXChatGPTSpider extends REXSpider {
                               // the spider is wedged until the service worker restarts.
                               // Log this conversation as failed and continue with the rest.
                               console.log(`[rex-spider-chatgpt] Crawl errored for ${next.url}:`, err)
+                              accountEndReason = null // this conversation was not captured; retried next run
                               fetchConvo()
                             })
                         }, this.sleepDelayMs)
@@ -361,13 +384,19 @@ export class REXChatGPTSpider extends REXSpider {
     return cutoff
   }
 
-  private async pageIndex(accessToken: string, cutoff: number): Promise<{ toCrawl: CrawlTarget[], firstPageFailed: boolean }> {
+  private async pageIndex(accessToken: string, cutoff: number): Promise<{ toCrawl: CrawlTarget[], firstPageFailed: boolean, endReason: 'date-floor' | 'exhausted' | null }> {
     const pageSize = 28
     const toCrawl: CrawlTarget[] = []
 
     let offset = 0
     let pageIndex = 0
     let stop = false
+
+    // Why paging ended: 'date-floor' (crossed the cutoff) or 'exhausted'
+    // (no more items) both mean the whole account was enumerated. null means
+    // it ended early — maxIndexPages cap or a failed page — so completion of
+    // this run does NOT imply the account is fully collected.
+    let endReason: 'date-floor' | 'exhausted' | null = null
 
     while (!stop && pageIndex < this.maxIndexPages) {
       const indexUrl = `https://chatgpt.com/backend-api/conversations?offset=${offset}&limit=${pageSize}&order=updated&is_archived=false&is_starred=false`
@@ -381,7 +410,7 @@ export class REXChatGPTSpider extends REXSpider {
       if (!response.ok) {
         console.log(`[rex-spider-chatgpt] Index page ${pageIndex} failed (status ${response.status}).`)
         if (pageIndex === 0) {
-          return { toCrawl: [], firstPageFailed: true }
+          return { toCrawl: [], firstPageFailed: true, endReason: null }
         }
         break
       }
@@ -406,11 +435,17 @@ export class REXChatGPTSpider extends REXSpider {
           }
         } else {
           stop = true
+          endReason = 'date-floor'
           break
         }
       }
 
-      if (items.length < pageSize) break
+      if (items.length < pageSize) {
+        if (endReason === null) {
+          endReason = 'exhausted'
+        }
+        break
+      }
       offset += pageSize
       pageIndex += 1
       if (!stop && pageIndex < this.maxIndexPages) {
@@ -418,15 +453,20 @@ export class REXChatGPTSpider extends REXSpider {
       }
     }
 
-    return { toCrawl, firstPageFailed: false }
+    return { toCrawl, firstPageFailed: false, endReason }
   }
 
   private async pageProjectIndex(
     accessToken: string,
     cutoff: number,
     existingTargets: CrawlTarget[]
-  ): Promise<{ toCrawl: CrawlTarget[], partialFailure: boolean }> {
+  ): Promise<{ toCrawl: CrawlTarget[], partialFailure: boolean, complete: boolean }> {
     const toCrawl: CrawlTarget[] = []
+
+    // False whenever any project (or the sidebar listing itself) was cut
+    // short — by a failed page or the maxIndexPages cap — meaning some
+    // project conversations may not have been enumerated this run.
+    let complete = true
 
     try {
       // Step 1: list projects via the gizmos sidebar.
@@ -452,8 +492,9 @@ export class REXChatGPTSpider extends REXSpider {
           // First-page failure is the only case that blocks enumeration. Later-page failures
           // just stop pagination early and we use what we have so far.
           if (sidebarPageIndex === 0) {
-            return { toCrawl, partialFailure: true }
+            return { toCrawl, partialFailure: true, complete: false }
           }
+          complete = false
           break
         }
 
@@ -477,6 +518,9 @@ export class REXChatGPTSpider extends REXSpider {
           await new Promise((r) => self.setTimeout(r, this.sleepDelayMs))
         }
       }
+      if (sidebarCursor !== null) {
+        complete = false // maxIndexPages cap hit with more sidebar pages remaining
+      }
       console.log(`[rex-spider-chatgpt] Projects found: ${gizmoIds.length}`)
 
       // Step 2: for each project, page its conversations with cursor pagination.
@@ -499,6 +543,7 @@ export class REXChatGPTSpider extends REXSpider {
 
           if (!response.ok) {
             console.log(`[rex-spider-chatgpt] Project ${gizmoId} page ${projectPageIndex} failed (status ${response.status}).`)
+            complete = false
             break
           }
 
@@ -537,12 +582,16 @@ export class REXChatGPTSpider extends REXSpider {
             await new Promise((r) => self.setTimeout(r, this.sleepDelayMs))
           }
         }
+
+        if (!stop && cursor !== null) {
+          complete = false // maxIndexPages cap hit with more project pages remaining
+        }
       }
 
-      return { toCrawl, partialFailure: false }
+      return { toCrawl, partialFailure: false, complete }
     } catch (err) {
       console.log(`[rex-spider-chatgpt] pageProjectIndex threw unexpectedly:`, err)
-      return { toCrawl, partialFailure: true }
+      return { toCrawl, partialFailure: true, complete: false }
     }
   }
 
