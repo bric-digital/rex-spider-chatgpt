@@ -13,6 +13,10 @@ export class REXChatGPTSpider extends REXSpider {
   lastSync: number = 0
   syncPeriod: number = 300000
   accessToken: string | null = null
+  // Guards dispatchCompletionEvent against double-fire from the watchdog
+  // racing a natural-path terminal branch. Reset at the top of each
+  // checkNeedsUpdate run.
+  private completed: boolean = false
 
   constructor() {
     super()
@@ -38,6 +42,8 @@ export class REXChatGPTSpider extends REXSpider {
   }
 
   private dispatchCompletionEvent(crawledCount: number, accountCompleteReason: 'date-floor' | 'exhausted' | null = null): void {
+    if (this.completed) return
+    this.completed = true
     // Delay mirrors the rex-history completion pattern: waits for PDK's
     // persist debounce to expire so queued events flush before the signal.
     setTimeout(() => {
@@ -113,6 +119,11 @@ export class REXChatGPTSpider extends REXSpider {
     console.log(`[rex-spider-chatgpt] checkNeedsUpdate`)
 
     return new Promise<boolean>((resolve) => {
+      // Reset completion-idempotency flag at the top of every entry so the
+      // "too soon to sync" short-circuit and full runs can each fire exactly
+      // one *-complete event for that round.
+      this.completed = false
+
       if (this.syncing) {
         console.log(`[rex-spider-chatgpt] Still syncing. Skipping this round...`)
         resolve(true)
@@ -149,6 +160,18 @@ export class REXChatGPTSpider extends REXSpider {
         rexCorePlugin.handleMessage(storeMessage, this, (response) => { // eslint-disable-line @typescript-eslint/no-unused-vars
           this.syncing = true
 
+          // Arm the rex-spider watchdog. If the run wedges (hung fetch,
+          // parser exception that escapes the catch chain, etc.), the
+          // watchdog runs onTimeout below to clear `syncing`, dispatch
+          // *-complete, and let offboarding proceed. The completed flag
+          // on dispatchCompletionEvent prevents a double-fire if a
+          // delayed natural-path branch later runs to completion.
+          this.beginRun(() => {
+            this.syncing = false
+            this.dispatchCompletionEvent(0) // crawled count unknown from here
+            resolve(true)
+          })
+
           const homeUrl = 'https://chatgpt.com/'
 
           fetch(homeUrl)
@@ -156,6 +179,7 @@ export class REXChatGPTSpider extends REXSpider {
               if (!response.ok) {
                 console.log(`[rex-spider-chatgpt] Homepage fetch failed (status ${response.status}).`)
                 this.syncing = false
+                this.endRun()
                 this.dispatchCompletionEvent(0)
                 resolve(true) // Error - fall back to DOM scraping...
                 return
@@ -187,6 +211,7 @@ export class REXChatGPTSpider extends REXSpider {
                 if (this.accessToken === null) {
                   console.log(`[rex-spider-chatgpt] No access token — user is not logged in.`)
                   this.syncing = false
+                  this.endRun()
                   this.dispatchCompletionEvent(0)
                   resolve(true) // Not logged in — fall back to DOM scraping...
                   return
@@ -199,6 +224,7 @@ export class REXChatGPTSpider extends REXSpider {
                     this.pageIndex(this.accessToken, cutoff).then(async (pagingResult) => {
                       if (pagingResult.firstPageFailed) {
                         this.syncing = false
+                        this.endRun()
                         this.dispatchCompletionEvent(0)
                         resolve(true) // Error - fall back to DOM scraping...
                         return
@@ -242,6 +268,7 @@ export class REXChatGPTSpider extends REXSpider {
 
                       if (toCrawl.length === 0) {
                         this.syncing = false
+                        this.endRun()
                         this.dispatchCompletionEvent(0, accountEndReason)
                         resolve(false)
                         return
@@ -250,6 +277,7 @@ export class REXChatGPTSpider extends REXSpider {
                       const fetchConvo = () => {
                         if (toCrawl.length == 0) {
                           this.syncing = false
+                          this.endRun()
                           this.dispatchCompletionEvent(crawledCount, accountEndReason)
                           resolve(false)
                           return
@@ -275,6 +303,7 @@ export class REXChatGPTSpider extends REXSpider {
                                     if (payload !== null) {
                                       dispatchEvent(payload)
                                       crawledCount += 1
+                                      this.noteProgress()
                                       this.storeLastUpdate(next.conversationId, next.listingUpdateMs)
                                         .catch((err) => console.log(`[rex-spider-chatgpt] storeLastUpdate failed for ${next.conversationId}:`, err))
                                         .finally(() => fetchConvo())
@@ -290,6 +319,7 @@ export class REXChatGPTSpider extends REXSpider {
                                 console.log(convoResponse)
 
                                 this.syncing = false
+                                this.endRun()
                                 this.dispatchCompletionEvent(crawledCount)
                                 resolve(true) // Error - fall back to DOM scraping...
                               }
@@ -317,6 +347,7 @@ export class REXChatGPTSpider extends REXSpider {
             .catch((err) => {
               console.log(`[rex-spider-chatgpt] Unexpected error during sync:`, err)
               this.syncing = false
+              this.endRun()
               this.dispatchCompletionEvent(0)
               resolve(true) // Error - fall back to DOM scraping...
             })
@@ -418,6 +449,10 @@ export class REXChatGPTSpider extends REXSpider {
       const body = await response.json()
       const items = body?.items ?? []
 
+      // Each fetched index page is progress: long paging phases (dozens of
+      // pages x sleep_delay_ms) must not trip the stuck-run watchdog.
+      this.noteProgress()
+
       for (const item of items) {
         const itemUpdateMs = this.updateTimeMs(item?.update_time)
         if (itemUpdateMs === null) continue
@@ -500,6 +535,8 @@ export class REXChatGPTSpider extends REXSpider {
 
         const sidebarBody:any = await sidebarResp.json() // eslint-disable-line @typescript-eslint/no-explicit-any
 
+        this.noteProgress() // sidebar page fetched — reset the stuck-run watchdog clock
+
         // The sidebar response nests the gizmo ID at items[].gizmo.gizmo.id. Fall back to
         // items[].gizmo.id and items[].id so a future API reshape doesn't silently break us.
         const sidebarItems = sidebarBody?.items ?? []
@@ -549,6 +586,8 @@ export class REXChatGPTSpider extends REXSpider {
 
           const body = await response.json()
           const items = body?.items ?? []
+
+          this.noteProgress() // project page fetched — reset the stuck-run watchdog clock
 
           for (const item of items) {
             const itemUpdateMs = this.updateTimeMs(item?.update_time)
