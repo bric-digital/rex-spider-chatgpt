@@ -13,6 +13,10 @@ export class REXChatGPTSpider extends REXSpider {
   lastSync: number = 0
   syncPeriod: number = 300000
   accessToken: string | null = null
+  // Whether routine per-run *-complete events are emitted (config
+  // spider.chatgpt.emit_run_complete). Watchdog-recovered completions are
+  // always emitted regardless.
+  emitRunComplete: boolean = true
   // Guards dispatchCompletionEvent against double-fire from the watchdog
   // racing a natural-path terminal branch. Reset at the top of each
   // checkNeedsUpdate run.
@@ -37,29 +41,40 @@ export class REXChatGPTSpider extends REXSpider {
         if (typeof configuredMaxPages === 'number') {
           this.maxIndexPages = configuredMaxPages
         }
+        const configuredEmitRunComplete = spiderConfig?.emit_run_complete
+        if (typeof configuredEmitRunComplete === 'boolean') {
+          this.emitRunComplete = configuredEmitRunComplete
+        }
       })
       .catch((err) => console.warn('[rex-spider-chatgpt] Failed to read spider config:', err))
   }
 
-  private dispatchCompletionEvent(crawledCount: number, accountCompleteReason: 'date-floor' | 'exhausted' | null = null): void {
+  private dispatchCompletionEvent(crawledCount: number, accountCompleteReason: 'date-floor' | 'exhausted' | null = null, recovered: boolean = false): void {
     if (this.completed) return
     this.completed = true
     // Delay mirrors the rex-history completion pattern: waits for PDK's
     // persist debounce to expire so queued events flush before the signal.
     setTimeout(() => {
-      dispatchEvent({
-        name: 'pdk-app-event',
-        event_name: 'rex-spider-chatgpt-complete',
-        event_details: {
-          crawled_count: crawledCount,
-          date: Date.now()
-        }
-      })
+      // The per-run event fires on every exit path including errors and
+      // skips; deployments that only consume account-complete can silence it
+      // via config spider.chatgpt.emit_run_complete: false. A completion the
+      // watchdog recovered is always emitted, marked recovered_via so
+      // consumers (e.g. Keystone offboarding) can treat it as terminal.
+      if (recovered || this.emitRunComplete) {
+        dispatchEvent({
+          name: 'pdk-app-event',
+          event_name: 'rex-spider-chatgpt-complete',
+          event_details: {
+            crawled_count: crawledCount,
+            date: Date.now(),
+            ...(recovered ? { recovered_via: 'watchdog' } : {})
+          }
+        })
+      }
 
       // Account-complete only accompanies runs that enumerated the full
       // account (index paging ended at the cutoff or ran out of items, and
-      // every queued conversation was captured) — unlike the per-run event
-      // above, which fires on every exit path including errors and skips.
+      // every queued conversation was captured).
       if (accountCompleteReason !== null) {
         this.signalAccountComplete({
           reason: accountCompleteReason,
@@ -168,7 +183,9 @@ export class REXChatGPTSpider extends REXSpider {
           // delayed natural-path branch later runs to completion.
           this.beginRun(() => {
             this.syncing = false
-            this.dispatchCompletionEvent(0) // crawled count unknown from here
+            // recovered=true: marked recovered_via 'watchdog' and emitted even
+            // when routine per-run completes are silenced — offboarding needs it.
+            this.dispatchCompletionEvent(0, null, true) // crawled count unknown from here
             resolve(true)
           })
 
