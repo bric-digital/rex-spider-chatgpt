@@ -706,6 +706,19 @@ export class REXChatGPTSpider extends REXSpider {
                 turn['content*'] = turnJson.message.content.parts.join('\n')
               } else if (turnJson.message.content.text !== undefined) {
                 turn['content*'] = turnJson.message.content.text
+              } else if (turnJson.message.content.content_type === 'reasoning_recap' && typeof turnJson.message.content.content === 'string') {
+                turn['content*'] = turnJson.message.content.content
+              } else if (turnJson.message.content.content_type === 'thoughts' && Array.isArray(turnJson.message.content.thoughts)) {
+                turn['content*'] = turnJson.message.content.thoughts
+                  .map((thought: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+                    const summary = typeof thought?.summary === 'string' ? thought.summary : ''
+                    const content = typeof thought?.content === 'string' ? thought.content : ''
+                    return [summary, content].filter((s) => s.length > 0).join('\n')
+                  })
+                  .filter((s: string) => s.length > 0)
+                  .join('\n\n')
+              } else if (turnJson.message.content.content_type === 'model_editable_context' && typeof turnJson.message.content.model_set_context === 'string') {
+                turn['content*'] = turnJson.message.content.model_set_context
               }
 
               if (turnJson.metadata !== undefined) {
@@ -753,7 +766,10 @@ export class REXChatGPTSpider extends REXSpider {
                 }
               }
 
-              conversation.turns.push(turn)
+              const isHidden = turnJson.message.metadata?.is_visually_hidden_from_conversation === true
+              if (!(isHidden && turn['content*'] === '')) {
+                conversation.turns.push(turn)
+              }
             }
 
             for (const childId of turnJson.children) {
