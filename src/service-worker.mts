@@ -721,6 +721,24 @@ export class REXChatGPTSpider extends REXSpider {
                 turn['content*'] = turnJson.message.content.model_set_context
               }
 
+              // Deep Research connector renders the final report inside a widget_state blob
+              // rather than the turn's own content.parts. Recover it when present and the
+              // turn's surface content is empty or just the tool-call envelope.
+              const widgetStateRaw = turnJson.message.metadata?.chatgpt_sdk?.widget_state
+              const surfaceContent = turn['content*']
+              const looksLikeToolCall = surfaceContent.startsWith('{"path"')
+              if (typeof widgetStateRaw === 'string' && (surfaceContent === '' || looksLikeToolCall)) {
+                try {
+                  const widgetState = JSON.parse(widgetStateRaw)
+                  const reportParts = widgetState?.report_message?.content?.parts
+                  if (Array.isArray(reportParts) && reportParts.length > 0) {
+                    turn['content*'] = reportParts.join('\n')
+                  }
+                } catch (err) {
+                  console.warn('[rex-spider-chatgpt] Failed to parse widget_state:', err)
+                }
+              }
+
               if (turnJson.metadata !== undefined) {
                 if (turnJson.metadata['search_result_groups'] !== undefined) {
                   const search: Search = {
