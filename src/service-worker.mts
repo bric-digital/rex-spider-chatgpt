@@ -130,8 +130,8 @@ export class REXChatGPTSpider extends REXSpider {
     })
   }
 
-  checkNeedsUpdate(): Promise<boolean> {
-    console.log(`[rex-spider-chatgpt] checkNeedsUpdate`)
+  checkNeedsUpdate(force: boolean = false): Promise<boolean> {
+    console.log(`[rex-spider-chatgpt] checkNeedsUpdate (force=${force})`)
 
     return new Promise<boolean>((resolve) => {
       // Reset completion-idempotency flag at the top of every entry so the
@@ -158,7 +158,7 @@ export class REXChatGPTSpider extends REXSpider {
           timestamp = response
         }
 
-        if (Date.now() < timestamp + this.syncPeriod) {
+        if (!force && Date.now() < timestamp + this.syncPeriod) {
           console.log(`[rex-spider-chatgpt] Too soon to sync again. Skipping this round...`)
           this.dispatchCompletionEvent(0)
           resolve(true)
