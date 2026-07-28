@@ -529,7 +529,7 @@ export class REXChatGPTSpider extends REXSpider {
                                   message: `Unable to fetch first page of results.`
                                 }]
                               })
-                            } else {
+                            } else if (this.accessToken !== null) {
                               const toCrawl = pagingResult.toCrawl
 
                               // Non-null only while this run is still on track to have
