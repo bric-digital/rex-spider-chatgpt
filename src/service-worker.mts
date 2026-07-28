@@ -85,7 +85,7 @@ export class REXChatGPTSpider extends REXSpider {
   }
 
   fetchUrls(): string[] {
-    return ['https://www.perplexity.ai/library']
+    return ['https://www.chatgpt.com/']
   }
 
   name(): string {
@@ -377,6 +377,15 @@ export class REXChatGPTSpider extends REXSpider {
     })
   }
 
+  whitelistedUrls():string[] {
+    return [
+      '|https://chatgpt.com/|',
+      '|https://chatgpt.com/backend-api/conversations?*',
+      '|https://chatgpt.com/backend-api/conversation/*',
+      '|https://chatgpt.com/backend-api/gizmos/*/conversations/*',
+      '|https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?*',
+    ]
+  }
 
   doBackgroundCrawl():Promise<REXSpiderCrawlResult> {
     return new Promise<REXSpiderCrawlResult>((resolve) => {
