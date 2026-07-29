@@ -378,7 +378,7 @@ export class REXChatGPTSpider extends REXSpider {
     })
   }
 
-  whitelistedUrls():string[] {
+  allowedUrls():string[] {
     return [
       '|https://chatgpt.com/|',
       '|https://chatgpt.com/backend-api/conversations?*',
