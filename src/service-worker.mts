@@ -165,7 +165,7 @@ export class REXChatGPTSpider extends REXSpider {
 
         if (Date.now() < timestamp + this.syncPeriod) {
           console.log(`[rex-spider-chatgpt] Too soon to sync again. Skipping this round...`)
-          this.dispatchCompletionEvent(0)
+          this.dispatchCompletionEvent(-1)
           resolve(true)
 
           return
@@ -190,7 +190,7 @@ export class REXChatGPTSpider extends REXSpider {
             this.syncing = false
             // recovered=true: marked recovered_via 'watchdog' and emitted even
             // when routine per-run completes are silenced — offboarding needs it.
-            this.dispatchCompletionEvent(0, [], null, true) // crawled count unknown from here
+            this.dispatchCompletionEvent(-1, [], null, true) // crawled count unknown from here
             resolve(true)
           })
 
@@ -202,7 +202,7 @@ export class REXChatGPTSpider extends REXSpider {
                 console.log(`[rex-spider-chatgpt] Homepage fetch failed (status ${response.status}).`)
                 this.syncing = false
                 this.endRun()
-                this.dispatchCompletionEvent(0)
+                this.dispatchCompletionEvent(-1)
                 resolve(true) // Error - fall back to DOM scraping...
                 return
               }
@@ -234,7 +234,7 @@ export class REXChatGPTSpider extends REXSpider {
                   console.log(`[rex-spider-chatgpt] No access token — user is not logged in.`)
                   this.syncing = false
                   this.endRun()
-                  this.dispatchCompletionEvent(0)
+                  this.dispatchCompletionEvent(-1)
                   resolve(true) // Not logged in — fall back to DOM scraping...
                   return
                 }
@@ -247,7 +247,7 @@ export class REXChatGPTSpider extends REXSpider {
                       if (pagingResult.firstPageFailed) {
                         this.syncing = false
                         this.endRun()
-                        this.dispatchCompletionEvent(0)
+                        this.dispatchCompletionEvent(-1)
                         resolve(true) // Error - fall back to DOM scraping...
                         return
                       }
@@ -291,7 +291,7 @@ export class REXChatGPTSpider extends REXSpider {
                       if (toCrawl.length === 0) {
                         this.syncing = false
                         this.endRun()
-                        this.dispatchCompletionEvent(0, accountEndReason)
+                        this.dispatchCompletionEvent(0, [], accountEndReason)
                         resolve(false)
                         return
                       }
@@ -300,7 +300,7 @@ export class REXChatGPTSpider extends REXSpider {
                         if (toCrawl.length == 0) {
                           this.syncing = false
                           this.endRun()
-                          this.dispatchCompletionEvent(crawledCount, accountEndReason)
+                          this.dispatchCompletionEvent(crawledCount, [], accountEndReason)
                           resolve(false)
                           return
                         }
@@ -370,7 +370,7 @@ export class REXChatGPTSpider extends REXSpider {
               console.log(`[rex-spider-chatgpt] Unexpected error during sync:`, err)
               this.syncing = false
               this.endRun()
-              this.dispatchCompletionEvent(0)
+              this.dispatchCompletionEvent(-1)
               resolve(true) // Error - fall back to DOM scraping...
             })
         })
@@ -420,7 +420,7 @@ export class REXChatGPTSpider extends REXSpider {
           })
         } else if (Date.now() < lastSynchTs + this.syncPeriod) {
           console.log(`[rex-spider-chatgpt] Too soon to sync again. Skipping this round...`)
-          this.dispatchCompletionEvent(0, crawledIds)
+          this.dispatchCompletionEvent(-1, crawledIds)
 
           resolve({
             sitesCrawled: [this.identifier()],
@@ -449,7 +449,7 @@ export class REXChatGPTSpider extends REXSpider {
               this.syncing = false
               // recovered=true: marked recovered_via 'watchdog' and emitted even
               // when routine per-run completes are silenced — offboarding needs it.
-              this.dispatchCompletionEvent(0, crawledIds, null, true) // crawled count unknown from here
+              this.dispatchCompletionEvent(-1, crawledIds, null, true) // crawled count unknown from here
 
               resolve({
                 sitesCrawled: [this.identifier()],
@@ -468,7 +468,7 @@ export class REXChatGPTSpider extends REXSpider {
                   console.log(`[rex-spider-chatgpt] Homepage fetch failed (status ${response.status}).`)
                   this.syncing = false
                   this.endRun()
-                  this.dispatchCompletionEvent(0, crawledIds)
+                  this.dispatchCompletionEvent(-1, crawledIds)
 
                   resolve({
                     sitesCrawled: [this.identifier()],
@@ -505,7 +505,7 @@ export class REXChatGPTSpider extends REXSpider {
                       console.log(`[rex-spider-chatgpt] No access token — user is not logged in.`)
                       this.syncing = false
                       this.endRun()
-                      this.dispatchCompletionEvent(0, crawledIds)
+                      this.dispatchCompletionEvent(-1, crawledIds)
 
                       resolve({
                         sitesCrawled: [this.identifier()],
@@ -523,7 +523,7 @@ export class REXChatGPTSpider extends REXSpider {
                             if (pagingResult.firstPageFailed) {
                               this.syncing = false
                               this.endRun()
-                              this.dispatchCompletionEvent(0, crawledIds)
+                              this.dispatchCompletionEvent(-1, crawledIds)
 
                               resolve({
                                 sitesCrawled: [this.identifier()],
@@ -610,7 +610,7 @@ export class REXChatGPTSpider extends REXSpider {
                                                   dispatchEvent(payload)
 
                                                   crawledIds.push(next.conversationId)
-                                                  
+
                                                   crawledCount += 1
                                                   this.noteProgress()
                                                   this.storeLastUpdate(next.conversationId, next.listingUpdateMs)
@@ -667,7 +667,7 @@ export class REXChatGPTSpider extends REXSpider {
                 console.log(`[rex-spider-chatgpt] Unexpected error during sync:`, err)
                 this.syncing = false
                 this.endRun()
-                this.dispatchCompletionEvent(0, crawledIds)
+                this.dispatchCompletionEvent(-1, crawledIds)
 
                 resolve({
                   sitesCrawled: [this.identifier()],
