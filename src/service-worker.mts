@@ -781,8 +781,16 @@ export class REXChatGPTSpider extends REXSpider {
       this.noteProgress()
 
       for (const item of items) {
+        console.log(`[rex-spider-chatgpt] item 0`)
+
         const itemUpdateMs = this.updateTimeMs(item?.update_time)
+
+        console.log(`[rex-spider-chatgpt] item 1: ${itemUpdateMs}`)
+
         if (itemUpdateMs === null) continue
+
+        console.log(`[rex-spider-chatgpt] item 1: ${itemUpdateMs} < ${cutoff} = ${itemUpdateMs >= cutoff}`)
+
         if (itemUpdateMs >= cutoff) {
           if (item.id !== undefined) {
             const stored = await this.fetchLastUpdate(item.id)
@@ -796,6 +804,8 @@ export class REXChatGPTSpider extends REXSpider {
             }
           }
         } else {
+          console.log(`[rex-spider-chatgpt] Halting - after cutoff`)
+
           stop = true
           endReason = 'date-floor'
           break
