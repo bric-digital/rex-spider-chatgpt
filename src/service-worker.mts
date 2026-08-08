@@ -261,7 +261,9 @@ export class REXChatGPTSpider extends REXSpider {
 
                     const processNextItem = () => {
                       if (toProcess.length == 0) {
-                        fetchPage(offset + this.pageSize)
+                        setTimeout(() => {
+                          fetchPage(offset + this.pageSize)
+                        }, this.fetchCrawlDelay())
                       } else {
                         const item = toProcess.pop()
 
@@ -440,12 +442,17 @@ export class REXChatGPTSpider extends REXSpider {
                                     }
                                   }
                                 }
-                                checkNextProject()
+
+                                setTimeout(() => {
+                                  checkNextProject()
+                                }, this.fetchCrawlDelay())
                               })
                           } else {
                             console.log(`[rex-spider-gpt] Received invalid project ID: ${gizmoId} (${typeof gizmoId})`)
 
-                            checkNextProject()
+                            setTimeout(() => {
+                              checkNextProject()
+                            }, this.fetchCrawlDelay())
                           }
                         }
                       }
@@ -581,14 +588,20 @@ export class REXChatGPTSpider extends REXSpider {
                                       dispatched += 1
 
                                       this.logTransmitted(uploadKey).then(() => {
-                                        fetchNextConversation()
+                                        setTimeout(() => {
+                                          fetchNextConversation()
+                                        }, this.fetchCrawlDelay())
                                       })
                                     } else {
-                                      fetchNextConversation()
+                                      setTimeout(() => {
+                                        fetchNextConversation()
+                                      }, this.fetchCrawlDelay())
                                     }
                                   })
                                 } else {
-                                  fetchNextConversation()
+                                  setTimeout(() => {
+                                    fetchNextConversation()
+                                  }, this.fetchCrawlDelay())
                                 }
                               })
                             })
