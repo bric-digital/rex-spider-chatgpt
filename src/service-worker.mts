@@ -309,8 +309,8 @@ export class REXChatGPTSpider extends REXSpider {
     return new Promise<string[] | null>((resolve, reject) => {
       const conversationIds:string[] = []
 
-      const fetchProjectConversationsForPage = (cursorToken: string | undefined = '0') => {
-        if (cursorToken === undefined) { // Finished?
+      const fetchProjectConversationsForPage = (cursorToken: string | null = '0') => {
+        if (cursorToken === undefined || cursorToken === null) { // Finished?
           resolve(conversationIds)
         } else {
           const projectUrlBase:string = `https://chatgpt.com/backend-api/gizmos/${projectId}/conversations`
