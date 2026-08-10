@@ -83,7 +83,7 @@ export class REXChatGPTSpider extends REXSpider {
   }
 
   parseConversation(conversationJson: any): Promise<any | null> { // eslint-disable-line @typescript-eslint/no-explicit-any
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const firstWhen = new Date(conversationJson['create_time'] * 1000)
 
       let latestDate = firstWhen
@@ -99,13 +99,13 @@ export class REXChatGPTSpider extends REXSpider {
         metadata: conversationJson // TODO: Pull out so only populated on debug=true
       }
 
-      const convoIds = ['client-created-root']
+      const turnIds = ['client-created-root']
 
-      while (convoIds.length > 0) {
-        const convoId = convoIds.shift()
+      while (turnIds.length > 0) {
+        const turnId = turnIds.shift()
 
-        if (convoId !== undefined) {
-          const turnJson = conversationJson['mapping'][convoId]
+        if (turnId !== undefined) {
+          const turnJson = conversationJson['mapping'][turnId]
 
           if (turnJson !== undefined) {
             let createTime = firstWhenString
@@ -222,8 +222,12 @@ export class REXChatGPTSpider extends REXSpider {
             }
 
             for (const childId of turnJson.children) {
-              convoIds.push(childId)
+              turnIds.push(childId)
             }
+          } else {
+            reject(`Invalid turn structure for ${conversation.identifier}. Offending turn: ${turnId}.`)
+            
+            return
           }
         }
       }
@@ -254,6 +258,8 @@ export class REXChatGPTSpider extends REXSpider {
           .then((response) => {
             if (!response.ok) {
               console.log(`[rex-spider-chatgpt] Index offset ${offset} failed (status ${response.status}).`)
+
+              reject(`Index offset ${offset} failed (status ${response.status})`)
             } else {
               response.json().then((body) => {
                 if (body.items !== undefined) {
@@ -307,8 +313,8 @@ export class REXChatGPTSpider extends REXSpider {
                               processNextItem()
                             }
                         } else {
-                            processNextItem()
-                          }
+                          processNextItem()
+                        }
                         }
                       }
                     }
@@ -539,6 +545,8 @@ export class REXChatGPTSpider extends REXSpider {
   }
 
   doBackgroundCrawl():Promise<REXSpiderCrawlResult> {
+    const crawlResult:REXSpiderCrawlResult = await super.doBackgroundCrawl()
+    
     return new Promise<REXSpiderCrawlResult>((resolve) => {
       const crawledIds: string[] = []
 
@@ -551,13 +559,12 @@ export class REXChatGPTSpider extends REXSpider {
           if (!response.ok) {
             this.signalCrawlComplete(-1, crawledIds, `Homepage fetch failed (status ${response.status}).`)
 
-            resolve({
-              sitesCrawled: [this.identifier()],
-              issues: [{
+            crawlResult.issues.push({
                 url: this.loginUrl(),
                 message: `Unable to fetch ${homeUrl}. Status code = ${response.status}.`
-              }]
-            })
+              })
+
+            resolve(crawlResult)
           } else {
             response.text().then((rawHtml) => {
               const lines = rawHtml.match(/[^\r\n]+/g)
@@ -583,13 +590,12 @@ export class REXChatGPTSpider extends REXSpider {
               if (this.accessToken === null) {
                 this.signalCrawlComplete(-1, crawledIds, 'No access token — user is not logged in.')
 
-                resolve({
-                  sitesCrawled: [this.identifier()],
-                  issues: [{
-                    url: this.loginUrl(),
-                    message: `User not logged in.`
-                  }]
+                crawlResult.issues.push({
+                  url: this.loginUrl(),
+                  message: `User not logged in.`
                 })
+
+                resolve(crawlResult)
               } else {
                 const toCrawl:REXSpiderCrawlInspection[] = []
 
@@ -597,10 +603,7 @@ export class REXChatGPTSpider extends REXSpider {
                   if (toCrawl.length === 0) {
                     this.signalCrawlComplete(dispatched, crawledIds, `Conversations crawled successfully.`)
 
-                    resolve({
-                      sitesCrawled: [this.identifier()],
-                      issues: []
-                    })
+                    resolve(crawlResult)
                   } else {
                     const convoRecord: REXSpiderCrawlInspection | undefined = toCrawl.pop()
 
@@ -653,30 +656,37 @@ export class REXChatGPTSpider extends REXSpider {
                                       fetchNextConversation()
                                     }, this.fetchCrawlDelay())
                                   }
+                                }).catch((err) => {
+                                  this.signalCrawlComplete(-1, [], `Error encountered parsing conversation: ${err}`)
+
+                                  crawlResult.issues.push({
+                                    url: convoUrl,
+                                    message: `Error encountered parsing conversation: ${err}`
+                                  })
+
+                                  resolve(crawlResult)
                                 })
                               })
                             } else {
                               this.signalCrawlComplete(-1, [], `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`)
 
-                              resolve({
-                                sitesCrawled: [this.identifier()],
-                                issues: [{
-                                  url: convoUrl,
-                                  message: `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`
-                                }]
+                              crawlResult.issues.push({
+                                url: convoUrl,
+                                message: `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`
                               })
+
+                              resolve(crawlResult)
                             }
                           })
                           .catch((err) => {
                             this.signalCrawlComplete(-1, [], `Error retrieving conversation: ${err}.`)
 
-                            resolve({
-                              sitesCrawled: [this.identifier()],
-                              issues: [{
+                            crawlResult.issues.push({
                                 url: convoUrl,
                                 message: `Error retrieving conversation: ${err}.`
-                              }]
                             })
+
+                            resolve(crawlResult)
                           })
                       } else {
                         fetchNextConversation()
@@ -706,25 +716,23 @@ export class REXChatGPTSpider extends REXSpider {
                       .catch((err) => {
                         this.signalCrawlComplete(-1, crawledIds, `Unable to fetch project URLs: ${err}.`)
 
-                        resolve({
-                          sitesCrawled: [this.identifier()],
-                          issues: [{
+                        crawlResult.issues.push({
                             url: this.loginUrl(),
                             message: `Unable to fetch project URLs: ${err}.`
-                          }]
                         })
+
+                        resolve(crawlResult)
                       })
                   })
                   .catch((err) => {
                     this.signalCrawlComplete(-1, crawledIds, `Unable to fetch conversation IDs: ${err}.`)
 
-                    resolve({
-                      sitesCrawled: [this.identifier()],
-                      issues: [{
-                        url: this.loginUrl(),
-                        message: `Unable to fetch conversation Ids: ${err}.`
-                      }]
+                    crawlResult.issues.push({
+                      url: this.loginUrl(),
+                      message: `Unable to fetch conversation Ids: ${err}.`
                     })
+
+                    resolve(crawlResult)
                   })
               }
             })
@@ -734,13 +742,12 @@ export class REXChatGPTSpider extends REXSpider {
           console.log(`[rex-spider-chatgpt] Unexpected error during sync:`, err)
           this.signalCrawlComplete(-1, crawledIds, `Error fetching conversations: ${err}.`)
 
-          resolve({
-            sitesCrawled: [this.identifier()],
-            issues: [{
-              url: this.loginUrl(),
-              message: `Error fetching conversations: ${err}.`
-            }]
+          crawlResult.issues.push({
+            url: this.loginUrl(),
+            message: `Error fetching conversations: ${err}.`
           })
+
+          resolve(crawlResult)
         })
     })
   }
