@@ -697,7 +697,7 @@ export class REXChatGPTSpider extends REXSpider {
                   this.fetchConversationRecords()
                     .then((convoIds:REXSpiderCrawlInspection[]) => {
                       for (const convoId of convoIds) {
-                        if (check.string(convoId) && toCrawl.includes(convoId) === false) {
+                        if (toCrawl.includes(convoId) === false) {
                           toCrawl.push(convoId)
                         }
                       }
