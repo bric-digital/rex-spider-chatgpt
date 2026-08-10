@@ -545,210 +545,212 @@ export class REXChatGPTSpider extends REXSpider {
   }
 
   doBackgroundCrawl():Promise<REXSpiderCrawlResult> {
-    const crawlResult:REXSpiderCrawlResult = await super.doBackgroundCrawl()
-    
     return new Promise<REXSpiderCrawlResult>((resolve) => {
-      const crawledIds: string[] = []
+      super.doBackgroundCrawl().then((crawlResult:REXSpiderCrawlResult) => {
+        const crawledIds: string[] = []
 
-      const homeUrl = 'https://chatgpt.com/'
+        const homeUrl = 'https://chatgpt.com/'
 
-      let dispatched = 0
+        let dispatched = 0
 
-      fetch(homeUrl)
-        .then((response: Response) => {
-          if (!response.ok) {
-            this.signalCrawlComplete(-1, crawledIds, `Homepage fetch failed (status ${response.status}).`)
+        fetch(homeUrl)
+          .then((response: Response) => {
+            if (!response.ok) {
+              this.signalCrawlComplete(-1, crawledIds, `Homepage fetch failed (status ${response.status}).`)
 
-            crawlResult.issues.push({
-                url: this.loginUrl(),
-                message: `Unable to fetch ${homeUrl}. Status code = ${response.status}.`
-              })
+              crawlResult.issues.push({
+                  url: this.loginUrl(),
+                  message: `Unable to fetch ${homeUrl}. Status code = ${response.status}.`
+                })
 
-            resolve(crawlResult)
-          } else {
-            response.text().then((rawHtml) => {
-              const lines = rawHtml.match(/[^\r\n]+/g)
+              resolve(crawlResult)
+            } else {
+              response.text().then((rawHtml) => {
+                const lines = rawHtml.match(/[^\r\n]+/g)
 
-              if (lines !== null) {
-                for (const line of lines) {
-                  if (line.includes('"accessToken"')) {
-                    const startIndex = line.indexOf('"accessToken":"')
+                if (lines !== null) {
+                  for (const line of lines) {
+                    if (line.includes('"accessToken"')) {
+                      const startIndex = line.indexOf('"accessToken":"')
 
-                    if (startIndex !== -1) {
-                      const prefixStripped = line.substring(startIndex)
+                      if (startIndex !== -1) {
+                        const prefixStripped = line.substring(startIndex)
 
-                      const tokens = prefixStripped.split('"')
+                        const tokens = prefixStripped.split('"')
 
-                      if (tokens.length > 3) {
-                        this.accessToken = tokens[3]
+                        if (tokens.length > 3) {
+                          this.accessToken = tokens[3]
+                        }
                       }
                     }
                   }
                 }
-              }
 
-              if (this.accessToken === null) {
-                this.signalCrawlComplete(-1, crawledIds, 'No access token — user is not logged in.')
+                if (this.accessToken === null) {
+                  this.signalCrawlComplete(-1, crawledIds, 'No access token — user is not logged in.')
 
-                crawlResult.issues.push({
-                  url: this.loginUrl(),
-                  message: `User not logged in.`
-                })
+                  crawlResult.issues.push({
+                    url: this.loginUrl(),
+                    message: `User not logged in.`
+                  })
 
-                resolve(crawlResult)
-              } else {
-                const toCrawl:REXSpiderCrawlInspection[] = []
+                  resolve(crawlResult)
+                } else {
+                  const toCrawl:REXSpiderCrawlInspection[] = []
 
-                const fetchNextConversation = () => {
-                  if (toCrawl.length === 0) {
-                    this.signalCrawlComplete(dispatched, crawledIds, `Conversations crawled successfully.`)
+                  const fetchNextConversation = () => {
+                    if (toCrawl.length === 0) {
+                      this.signalCrawlComplete(dispatched, crawledIds, `Conversations crawled successfully.`)
 
-                    resolve(crawlResult)
-                  } else {
-                    const convoRecord: REXSpiderCrawlInspection | undefined = toCrawl.pop()
+                      resolve(crawlResult)
+                    } else {
+                      const convoRecord: REXSpiderCrawlInspection | undefined = toCrawl.pop()
 
-                    if (convoRecord !== undefined) {
-                      if (crawledIds.includes(convoRecord.id) === false) {
-                        crawledIds.push(convoRecord.id)
-                      }
+                      if (convoRecord !== undefined) {
+                        if (crawledIds.includes(convoRecord.id) === false) {
+                          crawledIds.push(convoRecord.id)
+                        }
 
-                      if (convoRecord.refresh) {
-                        const convoUrl = `https://chatgpt.com/backend-api/conversation/${convoRecord.id}`
+                        if (convoRecord.refresh) {
+                          const convoUrl = `https://chatgpt.com/backend-api/conversation/${convoRecord.id}`
 
-                        fetch(convoUrl, {
-                          method: 'GET',
-                          headers: {
-                            'Authorization': `Bearer ${this.accessToken}`
-                          }
-                        })
-                          .then((convoResponse: Response) => {
-                            if (convoResponse.ok) {
-                              convoResponse.json().then((result) => {
-                                this.parseConversation(result).then((conversation) => {
-                                  if (conversation !== null) {
-                                    const uploadKey = `rex-spider-chatgpt-upload-${conversation.identifier}-${conversation.ended.toJSON()}`
+                          fetch(convoUrl, {
+                            method: 'GET',
+                            headers: {
+                              'Authorization': `Bearer ${this.accessToken}`
+                            }
+                          })
+                            .then((convoResponse: Response) => {
+                              if (convoResponse.ok) {
+                                convoResponse.json().then((result) => {
+                                  this.parseConversation(result).then((conversation) => {
+                                    if (conversation !== null) {
+                                      const uploadKey = `rex-spider-chatgpt-upload-${conversation.identifier}-${conversation.ended.toJSON()}`
 
-                                    this.checkIfAlreadyTransmitted(uploadKey).then((transmitted:boolean) => {
-                                      if (transmitted === false) {
-                                        const payload: EventPayload = {
-                                          name: 'rex-conversation',
-                                          date: conversation.started.value.epochMilliseconds,
-                                          ...conversation
-                                        }
+                                      this.checkIfAlreadyTransmitted(uploadKey).then((transmitted:boolean) => {
+                                        if (transmitted === false) {
+                                          const payload: EventPayload = {
+                                            name: 'rex-conversation',
+                                            date: conversation.started.value.epochMilliseconds,
+                                            ...conversation
+                                          }
 
-                                        dispatchEvent(payload)
+                                          dispatchEvent(payload)
 
-                                        dispatched += 1
+                                          dispatched += 1
 
-                                        this.logTransmitted(uploadKey).then(() => {
+                                          this.logTransmitted(uploadKey).then(() => {
+                                            setTimeout(() => {
+                                              fetchNextConversation()
+                                            }, this.fetchCrawlDelay())
+                                          })
+                                        } else {
                                           setTimeout(() => {
                                             fetchNextConversation()
                                           }, this.fetchCrawlDelay())
-                                        })
-                                      } else {
-                                        setTimeout(() => {
-                                          fetchNextConversation()
-                                        }, this.fetchCrawlDelay())
-                                      }
+                                        }
+                                      })
+                                    } else {
+                                      setTimeout(() => {
+                                        fetchNextConversation()
+                                      }, this.fetchCrawlDelay())
+                                    }
+                                  }).catch((err) => {
+                                    this.signalCrawlComplete(-1, [], `Error encountered parsing conversation: ${err}`)
+
+                                    crawlResult.issues.push({
+                                      url: convoUrl,
+                                      message: `Error encountered parsing conversation: ${err}`
                                     })
-                                  } else {
-                                    setTimeout(() => {
-                                      fetchNextConversation()
-                                    }, this.fetchCrawlDelay())
-                                  }
-                                }).catch((err) => {
-                                  this.signalCrawlComplete(-1, [], `Error encountered parsing conversation: ${err}`)
 
-                                  crawlResult.issues.push({
-                                    url: convoUrl,
-                                    message: `Error encountered parsing conversation: ${err}`
+                                    resolve(crawlResult)
                                   })
-
-                                  resolve(crawlResult)
                                 })
-                              })
-                            } else {
-                              this.signalCrawlComplete(-1, [], `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`)
+                              } else {
+                                this.signalCrawlComplete(-1, [], `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`)
+
+                                crawlResult.issues.push({
+                                  url: convoUrl,
+                                  message: `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`
+                                })
+
+                                resolve(crawlResult)
+                              }
+                            })
+                            .catch((err) => {
+                              this.signalCrawlComplete(-1, [], `Error retrieving conversation: ${err}.`)
 
                               crawlResult.issues.push({
-                                url: convoUrl,
-                                message: `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`
+                                  url: convoUrl,
+                                  message: `Error retrieving conversation: ${err}.`
                               })
 
                               resolve(crawlResult)
-                            }
-                          })
-                          .catch((err) => {
-                            this.signalCrawlComplete(-1, [], `Error retrieving conversation: ${err}.`)
-
-                            crawlResult.issues.push({
-                                url: convoUrl,
-                                message: `Error retrieving conversation: ${err}.`
                             })
-
-                            resolve(crawlResult)
-                          })
-                      } else {
-                        fetchNextConversation()
+                        } else {
+                          fetchNextConversation()
+                        }
                       }
                     }
                   }
-                }
 
-                this.fetchConversationRecords()
-                  .then((convoIds:REXSpiderCrawlInspection[]) => {
-                    for (const convoId of convoIds) {
-                      if (check.string(convoId) && toCrawl.includes(convoId) === false) {
-                        toCrawl.push(convoId)
-                      }
-                    }
-
-                    this.fetchProjectRecords()
-                      .then((projectRecords:REXSpiderCrawlInspection[]) => {
-                        for (const convoRecord of projectRecords) {
-                          if (toCrawl.includes(convoRecord) === false) {
-                            toCrawl.push(convoRecord)
-                          }
+                  this.fetchConversationRecords()
+                    .then((convoIds:REXSpiderCrawlInspection[]) => {
+                      for (const convoId of convoIds) {
+                        if (check.string(convoId) && toCrawl.includes(convoId) === false) {
+                          toCrawl.push(convoId)
                         }
+                      }
 
-                        fetchNextConversation()
-                      })
-                      .catch((err) => {
-                        this.signalCrawlComplete(-1, crawledIds, `Unable to fetch project URLs: ${err}.`)
+                      this.fetchProjectRecords()
+                        .then((projectRecords:REXSpiderCrawlInspection[]) => {
+                          for (const convoRecord of projectRecords) {
+                            if (toCrawl.includes(convoRecord) === false) {
+                              toCrawl.push(convoRecord)
+                            }
+                          }
 
-                        crawlResult.issues.push({
-                            url: this.loginUrl(),
-                            message: `Unable to fetch project URLs: ${err}.`
+                          fetchNextConversation()
                         })
+                        .catch((err) => {
+                          this.signalCrawlComplete(-1, crawledIds, `Unable to fetch project URLs: ${err}.`)
 
-                        resolve(crawlResult)
-                      })
-                  })
-                  .catch((err) => {
-                    this.signalCrawlComplete(-1, crawledIds, `Unable to fetch conversation IDs: ${err}.`)
+                          crawlResult.issues.push({
+                              url: this.loginUrl(),
+                              message: `Unable to fetch project URLs: ${err}.`
+                          })
 
-                    crawlResult.issues.push({
-                      url: this.loginUrl(),
-                      message: `Unable to fetch conversation Ids: ${err}.`
+                          resolve(crawlResult)
+                        })
                     })
+                    .catch((err) => {
+                      this.signalCrawlComplete(-1, crawledIds, `Unable to fetch conversation IDs: ${err}.`)
 
-                    resolve(crawlResult)
-                  })
-              }
+                      crawlResult.issues.push({
+                        url: this.loginUrl(),
+                        message: `Unable to fetch conversation Ids: ${err}.`
+                      })
+
+                      resolve(crawlResult)
+                    })
+                }
+              })
+            }
+          })
+          .catch((err) => {
+            console.log(`[rex-spider-chatgpt] Unexpected error during sync:`, err)
+            this.signalCrawlComplete(-1, crawledIds, `Error fetching conversations: ${err}.`)
+
+            crawlResult.issues.push({
+              url: this.loginUrl(),
+              message: `Error fetching conversations: ${err}.`
             })
-          }
-        })
-        .catch((err) => {
-          console.log(`[rex-spider-chatgpt] Unexpected error during sync:`, err)
-          this.signalCrawlComplete(-1, crawledIds, `Error fetching conversations: ${err}.`)
 
-          crawlResult.issues.push({
-            url: this.loginUrl(),
-            message: `Error fetching conversations: ${err}.`
+            resolve(crawlResult)
           })
 
-          resolve(crawlResult)
-        })
+
+      })
     })
   }
 }
