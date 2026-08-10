@@ -3,7 +3,7 @@ import check from 'check-types'
 import { Conversation, Turn, DateString, Citation, Search } from '@bric/rex-types/types'
 
 import { EventPayload, dispatchEvent } from '@bric/rex-core/service-worker'
-import rexSpiderPlugin, { REXSpider, REXSpiderCrawlResult } from '@bric/rex-spider/service-worker'
+import rexSpiderPlugin, { REXSpider, REXSpiderCrawlResult, REXSpiderCrawlInspection } from '@bric/rex-spider/service-worker'
 
 export type CrawlTarget = {
   url: string
@@ -114,9 +114,11 @@ export class REXChatGPTSpider extends REXSpider {
               const messageCreateTime = turnJson.message.create_time
               if (messageCreateTime !== null && messageCreateTime !== undefined) {
                 createTime = new DateString(messageCreateTime)
+
                 const turnDate = new Date(messageCreateTime * 1000)
                 if (turnDate > latestDate) {
                   latestDate = turnDate
+
                   conversation.ended = createTime
                 }
               }
@@ -213,6 +215,7 @@ export class REXChatGPTSpider extends REXSpider {
               }
 
               const isHidden = turnJson.message.metadata?.is_visually_hidden_from_conversation === true
+
               if (!(isHidden && turn['content*'] === '')) {
                 conversation.turns.push(turn)
               }
@@ -225,6 +228,8 @@ export class REXChatGPTSpider extends REXSpider {
         }
       }
 
+      conversation.ended = new DateString(latestDate)
+
       const payload: EventPayload = {
         name: 'rex-conversation',
         date: firstWhen,
@@ -235,9 +240,9 @@ export class REXChatGPTSpider extends REXSpider {
     })
   }
 
-  fetchConversationIds(): Promise<string[]> {
-    return new Promise<string[]>((resolve, reject) => {
-      const conversationIds:string[] = []
+  fetchConversationRecords(): Promise<REXSpiderCrawlInspection[]> {
+    return new Promise<REXSpiderCrawlInspection[]>((resolve, reject) => {
+      const inspectionRecords:REXSpiderCrawlInspection[] = []
 
       const fetchPage = (offset:number) => {
         const indexUrl = `https://chatgpt.com/backend-api/conversations?offset=${offset}&limit=${this.pageSize}&order=updated&is_archived=false&is_starred=false`
@@ -255,7 +260,7 @@ export class REXChatGPTSpider extends REXSpider {
                   const toProcess:any = [] // eslint-disable-line @typescript-eslint/no-explicit-any
 
                   if (check.array(body.items) && body.items.length === 0) {
-                    resolve(conversationIds)
+                    resolve(inspectionRecords)
                   } else {
                     toProcess.push(...body.items)
 
@@ -271,15 +276,37 @@ export class REXChatGPTSpider extends REXSpider {
                           if (item['update_time'] !== undefined) {
                             const updated = item['update_time'] * 1000
 
-                            this.crawlWindowContains(updated)
-                              .then((isContained:boolean) => {
-                                if (isContained && item.id !== undefined) {
-                                  conversationIds.push(item.id)
-                                }
+                            if (item.id !== undefined) {
+                              this.crawlWindowContains(updated)
+                                .then((isContained:boolean) => {
+                                  if (isContained) {
+                                    const updatedString = new DateString(updated)
 
-                                processNextItem()
-                              })
-                          } else {
+                                    const uploadKey = `rex-spider-chatgpt-upload-${item.id}-${updatedString.toJSON()}`
+
+                                    this.checkIfAlreadyTransmitted(uploadKey).then((transmitted:boolean) => {
+                                      if (transmitted === false) {
+                                        inspectionRecords.push({
+                                            id: item.id,
+                                            refresh: true
+                                        })
+                                      } else {
+                                        inspectionRecords.push({
+                                            id: item.id,
+                                            refresh: false
+                                        })
+                                      }
+
+                                      processNextItem()
+                                    })
+                                  } else {
+                                    processNextItem()
+                                  }
+                                })
+                            } else {
+                              processNextItem()
+                            }
+                        } else {
                             processNextItem()
                           }
                         }
@@ -289,7 +316,7 @@ export class REXChatGPTSpider extends REXSpider {
                     processNextItem()
                   }
                 } else {
-                  resolve(conversationIds)
+                  resolve(inspectionRecords)
                 }
               })
             }
@@ -305,13 +332,13 @@ export class REXChatGPTSpider extends REXSpider {
     })
   }
 
-  fetchConversationIdsForProject(projectId: string) : Promise<string[] | null> {
-    return new Promise<string[] | null>((resolve, reject) => {
-      const conversationIds:string[] = []
+  fetchConversationRecordsForProject(projectId: string) : Promise<REXSpiderCrawlInspection[] | null> {
+    return new Promise<REXSpiderCrawlInspection[] | null>((resolve, reject) => {
+      const inspectionRecords:REXSpiderCrawlInspection[] = []
 
       const fetchProjectConversationsForPage = (cursorToken: string | null = '0') => {
         if (cursorToken === undefined || cursorToken === null) { // Finished?
-          resolve(conversationIds)
+          resolve(inspectionRecords)
         } else {
           const projectUrlBase:string = `https://chatgpt.com/backend-api/gizmos/${projectId}/conversations`
 
@@ -330,7 +357,7 @@ export class REXChatGPTSpider extends REXSpider {
                     .then((body) => {
                       if (check.array(body.items)) {
                         if (body.items.length === 0) {
-                          resolve(conversationIds)
+                          resolve(inspectionRecords)
                         } else {
                           const toCheck:any[] = [] // eslint-disable-line @typescript-eslint/no-explicit-any
                           toCheck.push(...body.items)
@@ -341,22 +368,42 @@ export class REXChatGPTSpider extends REXSpider {
                             } else {
                               const item = toCheck.pop()
 
-                              const timestamp = Date.parse(item.update_time)
+                              if (check.string(item.id) && inspectionRecords.includes(item.id) === false) {
+                                const timestamp = Date.parse(item.update_time)
 
-                              if (Number.isNaN(timestamp)) {
-                                console.log(`[rex-spider-chatgpt] Received an invalid timestamp for date: ${item.update_time}.`)
-
-                                checkNextItem()
-                              } else {
-                                this.crawlWindowContains(timestamp).then((include) => {
-                                  if (include) {
-                                    if (check.string(item.id) && conversationIds.includes(item.id) === false) {
-                                      conversationIds.push(item.id)
-                                    }
-                                  }
+                                if (Number.isNaN(timestamp)) {
+                                  console.log(`[rex-spider-chatgpt] Received an invalid timestamp for date: ${item.update_time}.`)
 
                                   checkNextItem()
-                                })
+                                } else {
+                                  this.crawlWindowContains(timestamp).then((include) => {
+                                    if (include) {
+                                      const updatedString = new DateString(timestamp)
+
+                                      const uploadKey = `rex-spider-chatgpt-upload-${item.id}-${updatedString.toJSON()}`
+
+                                      this.checkIfAlreadyTransmitted(uploadKey).then((transmitted:boolean) => {
+                                        if (transmitted === false) {
+                                          inspectionRecords.push({
+                                            id: item.id,
+                                            refresh: true
+                                          })
+                                        } else {
+                                          inspectionRecords.push({
+                                            id: item.id,
+                                            refresh: false
+                                          })
+                                        }
+
+                                        checkNextItem()
+                                      })
+                                    } else {
+                                      checkNextItem()
+                                    }
+                                  })
+                                }
+                              } else {
+                                checkNextItem()
                               }
                             }
                           }
@@ -397,9 +444,9 @@ export class REXChatGPTSpider extends REXSpider {
     })
   }
 
-  fetchProjectIds(): Promise<string[]> {
-    return new Promise<string[]>((resolve, reject) => {
-      const conversationIds: string[] = []
+  fetchProjectRecords(): Promise<REXSpiderCrawlInspection[]> {
+    return new Promise<REXSpiderCrawlInspection[]>((resolve, reject) => {
+      const conversationRecords: REXSpiderCrawlInspection[] = []
 
       const fetchSidebarIds = (cursorToken: string | null = null) => {
         const sidebarUrlBase:string = `https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=0&limit=${this.pageSize}`
@@ -426,19 +473,19 @@ export class REXChatGPTSpider extends REXSpider {
 
                       const checkNextProject = () => {
                         if (toCheck.length === 0) {
-                          resolve(conversationIds)
+                          resolve(conversationRecords)
                         } else {
                           const item = toCheck.pop()
 
                           const gizmoId = item.gizmo.gizmo.id
 
                           if (check.string(gizmoId) && gizmoId.startsWith('g-p-')) {
-                            this.fetchConversationIdsForProject(gizmoId)
-                              .then((projectIds) => {
-                                if (check.array(projectIds)) {
-                                  for (const conversationId of projectIds) {
-                                    if (check.string(conversationId) && conversationIds.includes(conversationId) === false) {
-                                      conversationIds.push(conversationId)
+                            this.fetchConversationRecordsForProject(gizmoId)
+                              .then((projectRecords) => {
+                                if (check.array(projectRecords)) {
+                                  for (const conversationRecord of projectRecords) {
+                                    if (check.string(conversationRecord) && conversationRecords.includes(conversationRecord) === false) {
+                                      conversationRecords.push(conversationRecord)
                                     }
                                   }
                                 }
@@ -544,7 +591,7 @@ export class REXChatGPTSpider extends REXSpider {
                   }]
                 })
               } else {
-                const toCrawl:string[] = []
+                const toCrawl:REXSpiderCrawlInspection[] = []
 
                 const fetchNextConversation = () => {
                   if (toCrawl.length === 0) {
@@ -555,96 +602,102 @@ export class REXChatGPTSpider extends REXSpider {
                       issues: []
                     })
                   } else {
-                    const convoId: string | undefined = toCrawl.pop()
+                    const convoRecord: REXSpiderCrawlInspection | undefined = toCrawl.pop()
 
-                    if (convoId !== undefined) {
-                      const convoUrl = `https://chatgpt.com/backend-api/conversation/${convoId}`
+                    if (convoRecord !== undefined) {
+                      if (crawledIds.includes(convoRecord.id) === false) {
+                        crawledIds.push(convoRecord.id)
+                      }
 
-                      fetch(convoUrl, {
-                        method: 'GET',
-                        headers: {
-                          'Authorization': `Bearer ${this.accessToken}`
-                        }
-                      })
-                        .then((convoResponse: Response) => {
-                          if (convoResponse.ok) {
-                            convoResponse.json().then((result) => {
-                              this.parseConversation(result).then((conversation) => {
-                                if (conversation !== null) {
-                                  crawledIds.push(convoId)
+                      if (convoRecord.refresh) {
+                        const convoUrl = `https://chatgpt.com/backend-api/conversation/${convoRecord.id}`
 
-                                  const uploadKey = `rex-spider-chatgpt-upload-${conversation.identifier}-${conversation.started.toJSON()}`
+                        fetch(convoUrl, {
+                          method: 'GET',
+                          headers: {
+                            'Authorization': `Bearer ${this.accessToken}`
+                          }
+                        })
+                          .then((convoResponse: Response) => {
+                            if (convoResponse.ok) {
+                              convoResponse.json().then((result) => {
+                                this.parseConversation(result).then((conversation) => {
+                                  if (conversation !== null) {
+                                    const uploadKey = `rex-spider-chatgpt-upload-${conversation.identifier}-${conversation.ended.toJSON()}`
 
-                                  this.checkIfAlreadyTransmitted(uploadKey).then((transmitted:boolean) => {
-                                    if (transmitted === false) {
-                                      const payload: EventPayload = {
-                                        name: 'rex-conversation',
-                                        date: conversation.started.value.epochMilliseconds,
-                                        ...conversation
-                                      }
+                                    this.checkIfAlreadyTransmitted(uploadKey).then((transmitted:boolean) => {
+                                      if (transmitted === false) {
+                                        const payload: EventPayload = {
+                                          name: 'rex-conversation',
+                                          date: conversation.started.value.epochMilliseconds,
+                                          ...conversation
+                                        }
 
-                                      dispatchEvent(payload)
+                                        dispatchEvent(payload)
 
-                                      dispatched += 1
+                                        dispatched += 1
 
-                                      this.logTransmitted(uploadKey).then(() => {
+                                        this.logTransmitted(uploadKey).then(() => {
+                                          setTimeout(() => {
+                                            fetchNextConversation()
+                                          }, this.fetchCrawlDelay())
+                                        })
+                                      } else {
                                         setTimeout(() => {
                                           fetchNextConversation()
                                         }, this.fetchCrawlDelay())
-                                      })
-                                    } else {
-                                      setTimeout(() => {
-                                        fetchNextConversation()
-                                      }, this.fetchCrawlDelay())
-                                    }
-                                  })
-                                } else {
-                                  setTimeout(() => {
-                                    fetchNextConversation()
-                                  }, this.fetchCrawlDelay())
-                                }
+                                      }
+                                    })
+                                  } else {
+                                    setTimeout(() => {
+                                      fetchNextConversation()
+                                    }, this.fetchCrawlDelay())
+                                  }
+                                })
                               })
-                            })
-                          } else {
-                            this.signalCrawlComplete(-1, [], `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`)
+                            } else {
+                              this.signalCrawlComplete(-1, [], `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`)
+
+                              resolve({
+                                sitesCrawled: [this.identifier()],
+                                issues: [{
+                                  url: convoUrl,
+                                  message: `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`
+                                }]
+                              })
+                            }
+                          })
+                          .catch((err) => {
+                            this.signalCrawlComplete(-1, [], `Error retrieving conversation: ${err}.`)
 
                             resolve({
                               sitesCrawled: [this.identifier()],
                               issues: [{
                                 url: convoUrl,
-                                message: `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`
+                                message: `Error retrieving conversation: ${err}.`
                               }]
                             })
-                          }
-                        })
-                        .catch((err) => {
-                          this.signalCrawlComplete(-1, [], `Error retrieving conversation: ${err}.`)
-
-                          resolve({
-                            sitesCrawled: [this.identifier()],
-                            issues: [{
-                              url: convoUrl,
-                              message: `Error retrieving conversation: ${err}.`
-                            }]
                           })
-                        })
+                      } else {
+                        fetchNextConversation()
+                      }
                     }
                   }
                 }
 
-                this.fetchConversationIds()
-                  .then((convoIds:string[]) => {
+                this.fetchConversationRecords()
+                  .then((convoIds:REXSpiderCrawlInspection[]) => {
                     for (const convoId of convoIds) {
                       if (check.string(convoId) && toCrawl.includes(convoId) === false) {
                         toCrawl.push(convoId)
                       }
                     }
 
-                    this.fetchProjectIds()
-                      .then((projectIds) => {
-                        for (const convoId of projectIds) {
-                          if (check.string(convoId) && toCrawl.includes(convoId) === false) {
-                            toCrawl.push(convoId)
+                    this.fetchProjectRecords()
+                      .then((projectRecords:REXSpiderCrawlInspection[]) => {
+                        for (const convoRecord of projectRecords) {
+                          if (toCrawl.includes(convoRecord) === false) {
+                            toCrawl.push(convoRecord)
                           }
                         }
 

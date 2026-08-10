@@ -37,6 +37,7 @@
     "dependencies": {
         "@bric/rex-core": "github:bric-digital/rex-core",
         "@bric/rex-spider": "github:bric-digital/rex-spider#ck-refactoring",
-        "@bric/rex-types": "github:bric-digital/rex-types"
+        "@bric/rex-types": "github:bric-digital/rex-types",
+        "@types/bootstrap": "^5.2.11"
     }
 }
