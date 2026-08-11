@@ -357,7 +357,9 @@ export class REXChatGPTSpider extends REXSpider {
 
                           const checkNextItem = () => {
                             if (toCheck.length == 0) {
-                              fetchProjectConversationsForPage(body.cursor)
+                              setTimeout(() => {
+                                fetchProjectConversationsForPage(body.cursor)
+                              }, this.fetchCrawlDelay())
                             } else {
                               const item = toCheck.pop()
 
@@ -433,7 +435,9 @@ export class REXChatGPTSpider extends REXSpider {
         }
       }
 
-      fetchProjectConversationsForPage()
+      setTimeout(() => {
+        fetchProjectConversationsForPage()
+      }, this.fetchCrawlDelay())
     })
   }
 
@@ -648,7 +652,13 @@ export class REXChatGPTSpider extends REXSpider {
                                       message: `Error encountered parsing conversation: ${err}`
                                     })
 
-                                    resolve(crawlResult)
+                                    if (this.continueAfterError()) {
+                                      setTimeout(() => {
+                                        fetchNextConversation()
+                                      }, this.fetchCrawlDelay())
+                                    } else {
+                                      resolve(crawlResult)
+                                    }
                                   })
                                 })
                               } else {
@@ -659,18 +669,30 @@ export class REXChatGPTSpider extends REXSpider {
                                   message: `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`
                                 })
 
-                                resolve(crawlResult)
+                                if (this.continueAfterError()) {
+                                  setTimeout(() => {
+                                    fetchNextConversation()
+                                  }, this.fetchCrawlDelay())
+                                } else {
+                                  resolve(crawlResult)
+                                }
                               }
                             })
                             .catch((err) => {
                               this.signalCrawlComplete(-1, crawledIds, `Error retrieving conversation: ${err}.`)
 
                               crawlResult.issues.push({
-                                  url: convoUrl,
-                                  message: `Error retrieving conversation: ${err}.`
+                                url: convoUrl,
+                                message: `Error retrieving conversation: ${err}.`
                               })
 
-                              resolve(crawlResult)
+                              if (this.continueAfterError()) {
+                                setTimeout(() => {
+                                  fetchNextConversation()
+                                }, this.fetchCrawlDelay())
+                              } else {
+                                resolve(crawlResult)
+                              }
                             })
                         } else {
                           fetchNextConversation()
@@ -679,45 +701,55 @@ export class REXChatGPTSpider extends REXSpider {
                     }
                   }
 
-                  this.fetchConversationRecords()
-                    .then((convoIds:REXSpiderCrawlInspection[]) => {
-                      for (const convoId of convoIds) {
-                        if (toCrawl.includes(convoId) === false) {
-                          toCrawl.push(convoId)
-                        }
-                      }
-
-                      this.fetchProjectRecords()
-                        .then((projectRecords:REXSpiderCrawlInspection[]) => {
-                          for (const convoRecord of projectRecords) {
-                            if (toCrawl.includes(convoRecord) === false) {
-                              toCrawl.push(convoRecord)
-                            }
+                  setTimeout(() => {
+                    this.fetchConversationRecords()
+                      .then((convoIds:REXSpiderCrawlInspection[]) => {
+                        for (const convoId of convoIds) {
+                          if (toCrawl.includes(convoId) === false) {
+                            toCrawl.push(convoId)
                           }
+                        }
 
-                          fetchNextConversation()
-                        })
-                        .catch((err) => {
-                          this.signalCrawlComplete(-1, crawledIds, `Unable to fetch project URLs: ${err}.`)
+                        setTimeout(() => {
+                          this.fetchProjectRecords()
+                            .then((projectRecords:REXSpiderCrawlInspection[]) => {
+                              for (const convoRecord of projectRecords) {
+                                if (toCrawl.includes(convoRecord) === false) {
+                                  toCrawl.push(convoRecord)
+                                }
+                              }
 
-                          crawlResult.issues.push({
-                              url: this.loginUrl(),
-                              message: `Unable to fetch project URLs: ${err}.`
-                          })
+                              fetchNextConversation()
+                            })
+                            .catch((err) => {
+                              this.signalCrawlComplete(-1, crawledIds, `Unable to fetch project URLs: ${err}.`)
 
-                          resolve(crawlResult)
-                        })
-                    })
-                    .catch((err) => {
-                      this.signalCrawlComplete(-1, crawledIds, `Unable to fetch conversation IDs: ${err}.`)
+                              crawlResult.issues.push({
+                                  url: this.loginUrl(),
+                                  message: `Unable to fetch project URLs: ${err}.`
+                              })
 
-                      crawlResult.issues.push({
-                        url: this.loginUrl(),
-                        message: `Unable to fetch conversation Ids: ${err}.`
+                              if (this.continueAfterError()) {
+                                setTimeout(() => {
+                                  fetchNextConversation()
+                                }, this.fetchCrawlDelay())
+                              } else {
+                                resolve(crawlResult)
+                              }
+                            })
+                        }, this.fetchCrawlDelay())
                       })
+                      .catch((err) => {
+                        this.signalCrawlComplete(-1, crawledIds, `Unable to fetch conversation IDs: ${err}.`)
 
-                      resolve(crawlResult)
-                    })
+                        crawlResult.issues.push({
+                          url: this.loginUrl(),
+                          message: `Unable to fetch conversation Ids: ${err}.`
+                        })
+
+                        resolve(crawlResult)
+                      })
+                  }, this.fetchCrawlDelay())
                 }
               })
             }
