@@ -5,19 +5,6 @@ import { Conversation, Turn, DateString, Citation, Search } from '@bric/rex-type
 import { EventPayload, dispatchEvent } from '@bric/rex-core/service-worker'
 import rexSpiderPlugin, { REXSpider, REXSpiderCrawlResult, REXSpiderCrawlInspection } from '@bric/rex-spider/service-worker'
 
-export type CrawlTarget = {
-  url: string
-  listingUpdateMs: number
-  conversationId: string
-}
-
-export function shouldCrawl(itemUpdateMs: number, storedUpdateMs: number | null): boolean {
-  if (storedUpdateMs === null) {
-    return true
-  }
-  return itemUpdateMs > storedUpdateMs
-}
-
 export class REXChatGPTSpider extends REXSpider {
   accessToken: string | null = null
   pageSize:number = 28
@@ -288,18 +275,18 @@ export class REXChatGPTSpider extends REXSpider {
                                   if (isContained) {
                                     const updatedString = new DateString(updated)
 
-                                    const uploadKey = `rex-spider-chatgpt-upload-${item.id}-${updatedString.toJSON()}`
-
-                                    this.checkIfAlreadyTransmitted(uploadKey).then((transmitted:boolean) => {
+                                    this.checkIfAlreadyTransmitted(item.id, updatedString).then((transmitted:boolean) => {
                                       if (transmitted === false) {
                                         inspectionRecords.push({
                                             id: item.id,
-                                            refresh: true
+                                            refresh: true,
+                                            lookupDate: updatedString
                                         })
                                       } else {
                                         inspectionRecords.push({
                                             id: item.id,
-                                            refresh: false
+                                            refresh: false,
+                                            lookupDate: updatedString
                                         })
                                       }
 
@@ -386,18 +373,18 @@ export class REXChatGPTSpider extends REXSpider {
                                     if (include) {
                                       const updatedString = new DateString(timestamp)
 
-                                      const uploadKey = `rex-spider-chatgpt-upload-${item.id}-${updatedString.toJSON()}`
-
-                                      this.checkIfAlreadyTransmitted(uploadKey).then((transmitted:boolean) => {
+                                      this.checkIfAlreadyTransmitted(item.id, updatedString).then((transmitted:boolean) => {
                                         if (transmitted === false) {
                                           inspectionRecords.push({
                                             id: item.id,
-                                            refresh: true
+                                            refresh: true,
+                                            lookupDate: updatedString
                                           })
                                         } else {
                                           inspectionRecords.push({
                                             id: item.id,
-                                            refresh: false
+                                            refresh: false,
+                                            lookupDate: updatedString
                                           })
                                         }
 
@@ -490,7 +477,7 @@ export class REXChatGPTSpider extends REXSpider {
                               .then((projectRecords) => {
                                 if (check.array(projectRecords)) {
                                   for (const conversationRecord of projectRecords) {
-                                    if (check.string(conversationRecord) && conversationRecords.includes(conversationRecord) === false) {
+                                    if (conversationRecords.includes(conversationRecord) === false) {
                                       conversationRecords.push(conversationRecord)
                                     }
                                   }
@@ -625,9 +612,7 @@ export class REXChatGPTSpider extends REXSpider {
                                 convoResponse.json().then((result) => {
                                   this.parseConversation(result).then((conversation) => {
                                     if (conversation !== null) {
-                                      const uploadKey = `rex-spider-chatgpt-upload-${conversation.identifier}-${conversation.ended.toJSON()}`
-
-                                      this.checkIfAlreadyTransmitted(uploadKey).then((transmitted:boolean) => {
+                                      this.checkIfAlreadyTransmitted(convoRecord.id, convoRecord.lookupDate).then((transmitted:boolean) => {
                                         if (transmitted === false) {
                                           const payload: EventPayload = {
                                             name: 'rex-conversation',
@@ -639,7 +624,7 @@ export class REXChatGPTSpider extends REXSpider {
 
                                           dispatched += 1
 
-                                          this.logTransmitted(uploadKey).then(() => {
+                                          this.logTransmitted(convoRecord.id, convoRecord.lookupDate).then(() => {
                                             setTimeout(() => {
                                               fetchNextConversation()
                                             }, this.fetchCrawlDelay())
@@ -656,7 +641,7 @@ export class REXChatGPTSpider extends REXSpider {
                                       }, this.fetchCrawlDelay())
                                     }
                                   }).catch((err) => {
-                                    this.signalCrawlComplete(-1, [], `Error encountered parsing conversation: ${err}`)
+                                    this.signalCrawlComplete(-1, crawledIds, `Error encountered parsing conversation: ${err}`)
 
                                     crawlResult.issues.push({
                                       url: convoUrl,
@@ -667,7 +652,7 @@ export class REXChatGPTSpider extends REXSpider {
                                   })
                                 })
                               } else {
-                                this.signalCrawlComplete(-1, [], `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`)
+                                this.signalCrawlComplete(-1, crawledIds, `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`)
 
                                 crawlResult.issues.push({
                                   url: convoUrl,
@@ -678,7 +663,7 @@ export class REXChatGPTSpider extends REXSpider {
                               }
                             })
                             .catch((err) => {
-                              this.signalCrawlComplete(-1, [], `Error retrieving conversation: ${err}.`)
+                              this.signalCrawlComplete(-1, crawledIds, `Error retrieving conversation: ${err}.`)
 
                               crawlResult.issues.push({
                                   url: convoUrl,
