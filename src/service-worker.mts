@@ -62,10 +62,10 @@ export class REXChatGPTSpider extends REXSpider {
   allowedUrls():string[] {
     return [
       '^https://chatgpt.com/$',
-      '^https://chatgpt.com/backend-api/conversations\?.*',
+      '^https://chatgpt.com/backend-api/conversations\\?.*',
       '^https://chatgpt.com/backend-api/conversation/.*',
-      '^https://chatgpt.com/backend-api/gizmos/.*/conversations\?.*',
-      '^https://chatgpt.com/backend-api/gizmos/snorlax/sidebar\?.*',
+      '^https://chatgpt.com/backend-api/gizmos/.*/conversations\\?.*',
+      '^https://chatgpt.com/backend-api/gizmos/snorlax/sidebar\\?.*',
     ]
   }
 
