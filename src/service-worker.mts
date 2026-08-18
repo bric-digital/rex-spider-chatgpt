@@ -31,7 +31,6 @@ export class REXChatGPTSpider extends REXSpider {
 
   checkLogin(): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
-      console.log(`[rex-spider-chatgpt] checkLogin`)
       const indexUrl = 'https://chatgpt.com/'
 
       fetch(indexUrl)
@@ -43,8 +42,6 @@ export class REXChatGPTSpider extends REXSpider {
               if (lines !== null) {
                 for (const line of lines) {
                   if (line.includes('"accessToken"')) {
-                    console.log(`[rex-spider-chatgpt] accessToken present.`)
-
                     resolve(true)
                   }
                 }
@@ -75,8 +72,6 @@ export class REXChatGPTSpider extends REXSpider {
 
       let latestDate = firstWhen
 
-      console.log(`[rex-spider-chatgpt] [0] DateString(${conversationJson['create_time']} / ${typeof conversationJson['create_time']})`)
-
       const firstWhenString: DateString = new DateString(conversationJson['create_time'])
 
       const conversation: Conversation = {
@@ -102,8 +97,6 @@ export class REXChatGPTSpider extends REXSpider {
             if (turnJson.message !== null) {
               const messageCreateTime = turnJson.message.create_time
               if (messageCreateTime !== null && messageCreateTime !== undefined) {
-                console.log(`[rex-spider-chatgpt] [1] DateString(${messageCreateTime} / ${typeof messageCreateTime})`)
-
                 createTime = new DateString(messageCreateTime)
 
                 const turnDate = new Date(messageCreateTime * 1000)
@@ -223,8 +216,6 @@ export class REXChatGPTSpider extends REXSpider {
         }
       }
 
-      console.log(`[rex-spider-chatgpt] [2] DateString(${latestDate} / ${typeof latestDate})`)
-
       conversation.ended = new DateString(latestDate)
 
       const payload: EventPayload = {
@@ -273,18 +264,12 @@ export class REXChatGPTSpider extends REXSpider {
 
                         if (item !== undefined) {
                           if (item['update_time'] !== undefined) {
-                            console.log(`[rex-spider-chatgpt] item['update_time']: ${item['update_time']} / ${typeof item['update_time']}`)
-
                             const updated = new DateString(item['update_time'])
-
-                            console.log(`[rex-spider-chatgpt] updated(DateString): ${updated} / ${typeof updated} / ${updated.timestamp()}`)
 
                             if (item.id !== undefined) {
                               this.crawlWindowContains(updated.timestamp())
                                 .then((isContained:boolean) => {
                                   if (isContained) {
-                                    console.log(`[rex-spider-chatgpt] [3] DateString(${updated} / ${typeof updated})`)
-
                                     this.checkIfAlreadyTransmitted(item.id, updated).then((transmitted:boolean) => {
                                       if (transmitted === false) {
                                         inspectionRecords.push({
@@ -383,8 +368,6 @@ export class REXChatGPTSpider extends REXSpider {
                                 } else {
                                   this.crawlWindowContains(timestamp).then((include) => {
                                     if (include) {
-                                      console.log(`[rex-spider-chatgpt] [4] DateString(${timestamp} / ${typeof timestamp})`)
-
                                       const updatedString = new DateString(timestamp)
 
                                       this.checkIfAlreadyTransmitted(item.id, updatedString).then((transmitted:boolean) => {
