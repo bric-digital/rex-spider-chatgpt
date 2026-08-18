@@ -275,30 +275,28 @@ export class REXChatGPTSpider extends REXSpider {
                           if (item['update_time'] !== undefined) {
                             console.log(`[rex-spider-chatgpt] item['update_time']: ${item['update_time']} / ${typeof item['update_time']}`)
 
-                            const updated = parseInt(item['update_time']) * 1000
+                            const updated = new DateString(item['update_time'])
 
                             console.log(`[rex-spider-chatgpt] updated: ${item['updated']} / ${typeof item['updated']}`)
 
                             if (item.id !== undefined) {
-                              this.crawlWindowContains(updated)
+                              this.crawlWindowContains(updated.timestamp())
                                 .then((isContained:boolean) => {
                                   if (isContained) {
                                     console.log(`[rex-spider-chatgpt] [3] DateString(${updated} / ${typeof updated})`)
 
-                                    const updatedString = new DateString(updated)
-
-                                    this.checkIfAlreadyTransmitted(item.id, updatedString).then((transmitted:boolean) => {
+                                    this.checkIfAlreadyTransmitted(item.id, updated).then((transmitted:boolean) => {
                                       if (transmitted === false) {
                                         inspectionRecords.push({
                                             id: item.id,
                                             refresh: true,
-                                            lookupDate: updatedString
+                                            lookupDate: updated
                                         })
                                       } else {
                                         inspectionRecords.push({
                                             id: item.id,
                                             refresh: false,
-                                            lookupDate: updatedString
+                                            lookupDate: updated
                                         })
                                       }
 
