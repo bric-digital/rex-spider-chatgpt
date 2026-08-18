@@ -75,6 +75,8 @@ export class REXChatGPTSpider extends REXSpider {
 
       let latestDate = firstWhen
 
+      console.log(`[rex-spider-chatgpt] [0] DateString(${conversationJson['create_time']} / ${typeof conversationJson['create_time']})`)
+
       const firstWhenString: DateString = new DateString(conversationJson['create_time'])
 
       const conversation: Conversation = {
@@ -100,6 +102,8 @@ export class REXChatGPTSpider extends REXSpider {
             if (turnJson.message !== null) {
               const messageCreateTime = turnJson.message.create_time
               if (messageCreateTime !== null && messageCreateTime !== undefined) {
+                console.log(`[rex-spider-chatgpt] [1] DateString(${messageCreateTime} / ${typeof messageCreateTime})`)
+
                 createTime = new DateString(messageCreateTime)
 
                 const turnDate = new Date(messageCreateTime * 1000)
@@ -219,6 +223,8 @@ export class REXChatGPTSpider extends REXSpider {
         }
       }
 
+      console.log(`[rex-spider-chatgpt] [2] DateString(${latestDate} / ${typeof latestDate})`)
+
       conversation.ended = new DateString(latestDate)
 
       const payload: EventPayload = {
@@ -273,6 +279,8 @@ export class REXChatGPTSpider extends REXSpider {
                               this.crawlWindowContains(updated)
                                 .then((isContained:boolean) => {
                                   if (isContained) {
+                                    console.log(`[rex-spider-chatgpt] [3] DateString(${updated} / ${typeof updated})`)
+
                                     const updatedString = new DateString(updated)
 
                                     this.checkIfAlreadyTransmitted(item.id, updatedString).then((transmitted:boolean) => {
@@ -373,6 +381,8 @@ export class REXChatGPTSpider extends REXSpider {
                                 } else {
                                   this.crawlWindowContains(timestamp).then((include) => {
                                     if (include) {
+                                      console.log(`[rex-spider-chatgpt] [4] DateString(${timestamp} / ${typeof timestamp})`)
+
                                       const updatedString = new DateString(timestamp)
 
                                       this.checkIfAlreadyTransmitted(item.id, updatedString).then((transmitted:boolean) => {
