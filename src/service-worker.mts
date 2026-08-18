@@ -273,7 +273,11 @@ export class REXChatGPTSpider extends REXSpider {
 
                         if (item !== undefined) {
                           if (item['update_time'] !== undefined) {
-                            const updated = item['update_time'] * 1000
+                            console.log(`[rex-spider-chatgpt] item['update_time']: ${item['update_time']} / ${typeof item['update_time']}`)
+
+                            const updated = parseInt(item['update_time']) * 1000
+
+                            console.log(`[rex-spider-chatgpt] updated: ${item['updated']} / ${typeof item['updated']}`)
 
                             if (item.id !== undefined) {
                               this.crawlWindowContains(updated)
