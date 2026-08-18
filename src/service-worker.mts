@@ -277,7 +277,7 @@ export class REXChatGPTSpider extends REXSpider {
 
                             const updated = new DateString(item['update_time'])
 
-                            console.log(`[rex-spider-chatgpt] updated: ${item['updated']} / ${typeof item['updated']}`)
+                            console.log(`[rex-spider-chatgpt] updated(DateString): ${item['updated']} / ${typeof item['updated']}`)
 
                             if (item.id !== undefined) {
                               this.crawlWindowContains(updated.timestamp())
