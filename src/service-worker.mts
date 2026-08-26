@@ -644,6 +644,8 @@ export class REXChatGPTSpider extends REXSpider {
                         }
 
                         if (convoRecord.refresh) {
+                          console.log(`[rex-spider-chatgpt] justSummarize: ${this.justSummarize()}`)
+
                           if (this.justSummarize()) {
                             this.checkIfAlreadyTransmitted(convoRecord.id, convoRecord.lookupDate).then((transmitted:boolean) => {
                               console.log(`[rex-spider-chatgpt] Checked (again) ${convoRecord.id} / ${convoRecord.lookupDate.value}: ${transmitted} [3]`)
