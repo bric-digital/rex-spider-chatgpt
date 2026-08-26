@@ -254,11 +254,17 @@ export class REXChatGPTSpider extends REXSpider {
                   } else {
                     toProcess.push(...body.items)
 
+                    let inCrawlWindowCount = 0
+
                     const processNextItem = () => {
                       if (toProcess.length == 0) {
-                        setTimeout(() => {
-                          fetchPage(offset + this.pageSize)
-                        }, this.fetchCrawlDelay())
+                        if (inCrawlWindowCount > 0) {
+                          setTimeout(() => {
+                            fetchPage(offset + this.pageSize)
+                          }, this.fetchCrawlDelay())
+                        } else {
+                          resolve(inspectionRecords)
+                        }
                       } else {
                         const item = toProcess.pop()
 
@@ -266,11 +272,16 @@ export class REXChatGPTSpider extends REXSpider {
                           if (item['update_time'] !== undefined) {
                             try {
                               const updated = new DateString(item['update_time'])
+                              const created = new DateString(item['create_time'])
+
+                              const title:string = item.title
 
                               if (item.id !== undefined) {
                                 this.crawlWindowContains(updated.timestamp())
                                   .then((isContained:boolean) => {
                                     if (isContained) {
+                                      inCrawlWindowCount += 1
+
                                       this.checkIfAlreadyTransmitted(item.id, updated).then((transmitted:boolean) => {
                                         console.log(`[rex-spider-chatgpt] Checked ${item.id} / ${updated}: ${transmitted}`)
 
@@ -278,13 +289,17 @@ export class REXChatGPTSpider extends REXSpider {
                                           inspectionRecords.push({
                                               id: item.id,
                                               refresh: true,
-                                              lookupDate: updated
+                                              title,
+                                              lookupDate: updated,
+                                              startDate: created
                                           })
                                         } else {
                                           inspectionRecords.push({
                                               id: item.id,
+                                              title,
                                               refresh: false,
-                                              lookupDate: updated
+                                              lookupDate: updated,
+                                              startDate: created
                                           })
                                         }
 
@@ -374,16 +389,19 @@ export class REXChatGPTSpider extends REXSpider {
                               const item = toCheck.pop()
 
                               if (check.string(item.id) && inspectionRecords.includes(item.id) === false) {
-                                const timestamp = Date.parse(item.update_time)
+                                const updated = Date.parse(item.update_time)
+                                const started = Date.parse(item.create_time)
+                                const title:string = item.title
 
-                                if (Number.isNaN(timestamp)) {
+                                if (Number.isNaN(updated)) {
                                   console.log(`[rex-spider-chatgpt] Received an invalid timestamp for date: ${item.update_time}.`)
 
                                   checkNextItem()
                                 } else {
-                                  this.crawlWindowContains(timestamp).then((include) => {
+                                  this.crawlWindowContains(updated).then((include) => {
                                     if (include) {
-                                      const updatedString = new DateString(timestamp)
+                                      const updatedString = new DateString(updated)
+                                      const startedString = new DateString(started)
 
                                       this.checkIfAlreadyTransmitted(item.id, updatedString).then((transmitted:boolean) => {
                                         console.log(`[rex-spider-chatgpt] Checked ${item.id} / ${updatedString}: ${transmitted}`)
@@ -392,13 +410,17 @@ export class REXChatGPTSpider extends REXSpider {
                                           inspectionRecords.push({
                                             id: item.id,
                                             refresh: true,
-                                            lookupDate: updatedString
+                                            lookupDate: updatedString,
+                                            startDate: startedString,
+                                            title
                                           })
                                         } else {
                                           inspectionRecords.push({
                                             id: item.id,
                                             refresh: false,
-                                            lookupDate: updatedString
+                                            lookupDate: updatedString,
+                                            startDate: startedString,
+                                            title
                                           })
                                         }
 
@@ -622,14 +644,44 @@ export class REXChatGPTSpider extends REXSpider {
                         }
 
                         if (convoRecord.refresh) {
-                          const convoUrl = `https://chatgpt.com/backend-api/conversation/${convoRecord.id}`
+                          if (this.justSummarize()) {
+                            this.checkIfAlreadyTransmitted(convoRecord.id, convoRecord.lookupDate).then((transmitted:boolean) => {
+                              console.log(`[rex-spider-chatgpt] Checked (again) ${convoRecord.id} / ${convoRecord.lookupDate}: ${transmitted}`)
+                              
+                              const conversation: Conversation = {
+                                turns: [],
+                                platform: 'chatgpt',
+                                identifier: convoRecord.id,
+                                started: convoRecord.startDate,
+                                ended: convoRecord.lookupDate,
+                              }
 
-                          fetch(convoUrl, {
-                            method: 'GET',
-                            headers: {
-                              'Authorization': `Bearer ${this.accessToken}`
-                            }
-                          })
+                              const payload: EventPayload = {
+                                name: 'rex-conversation',
+                                'is_summary': true,
+                                date: convoRecord.lookupDate.value?.epochMilliseconds,
+                                ...conversation
+                              }
+
+                              dispatchEvent(payload)
+
+                              dispatched += 1
+
+                              this.logTransmitted(convoRecord.id, convoRecord.lookupDate).then(() => {
+                                setTimeout(() => {
+                                  fetchNextConversation()
+                                }, this.fetchCrawlDelay())
+                              })
+                            })
+                          } else {
+                            const convoUrl = `https://chatgpt.com/backend-api/conversation/${convoRecord.id}`
+
+                            fetch(convoUrl, {
+                              method: 'GET',
+                              headers: {
+                                'Authorization': `Bearer ${this.accessToken}`
+                              }
+                            })
                             .then((convoResponse: Response) => {
                               if (convoResponse.ok) {
                                 convoResponse.json().then((result) => {
@@ -757,6 +809,7 @@ export class REXChatGPTSpider extends REXSpider {
                                 resolve(crawlResult)
                               }
                             })
+                          }
                         } else {
                           fetchNextConversation()
                         }
