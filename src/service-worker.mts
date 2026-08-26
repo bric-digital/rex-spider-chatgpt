@@ -670,9 +670,7 @@ export class REXChatGPTSpider extends REXSpider {
                               dispatched += 1
 
                               this.logTransmitted(convoRecord.id, convoRecord.lookupDate).then(() => {
-                                setTimeout(() => {
-                                  fetchNextConversation()
-                                }, this.fetchCrawlDelay())
+                                fetchNextConversation()
                               })
                             })
                           } else {
