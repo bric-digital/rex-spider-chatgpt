@@ -632,6 +632,8 @@ export class REXChatGPTSpider extends REXSpider {
                                   this.parseConversation(result).then((conversation) => {
                                     if (conversation !== null) {
                                       this.checkIfAlreadyTransmitted(convoRecord.id, convoRecord.lookupDate).then((transmitted:boolean) => {
+                                        console.log(`[rex-spider-chatgpt] Checked ${convoRecord.id} / %{convoRecord.lookupDate}: ${transmitted}`)
+
                                         if (transmitted === false) {
                                           const payload: EventPayload = {
                                             name: 'rex-conversation',
