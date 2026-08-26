@@ -283,7 +283,7 @@ export class REXChatGPTSpider extends REXSpider {
                                       inCrawlWindowCount += 1
 
                                       this.checkIfAlreadyTransmitted(item.id, updated).then((transmitted:boolean) => {
-                                        console.log(`[rex-spider-chatgpt] Checked ${item.id} / ${updated.value}: ${transmitted} [1]`)
+                                        console.log(`[rex-spider-chatgpt] Checked ${item.id} / ${updated.value} / ${updated.originalValue}: ${transmitted} [1]`)
 
                                         if (transmitted === false) {
                                           inspectionRecords.push({
@@ -404,7 +404,7 @@ export class REXChatGPTSpider extends REXSpider {
                                       const startedString = new DateString(started)
 
                                       this.checkIfAlreadyTransmitted(item.id, updatedString).then((transmitted:boolean) => {
-                                        console.log(`[rex-spider-chatgpt] Checked ${item.id} / ${updatedString.value}: ${transmitted} [2]`)
+                                        console.log(`[rex-spider-chatgpt] Checked ${item.id} / ${updatedString.value} / ${updatedString.originalValue}: ${transmitted} [2]`)
 
                                         if (transmitted === false) {
                                           inspectionRecords.push({
@@ -648,7 +648,7 @@ export class REXChatGPTSpider extends REXSpider {
 
                           if (this.justSummarize()) {
                             this.checkIfAlreadyTransmitted(convoRecord.id, convoRecord.lookupDate).then((transmitted:boolean) => {
-                              console.log(`[rex-spider-chatgpt] Checked (again) ${convoRecord.id} / ${convoRecord.lookupDate.value}: ${transmitted} [3]`)
+                              console.log(`[rex-spider-chatgpt] Checked (again) ${convoRecord.id} / ${convoRecord.lookupDate.value} / ${convoRecord.lookupDate.originalValue}: ${transmitted} [3]`)
                               
                               const conversation: Conversation = {
                                 turns: [],
@@ -690,7 +690,7 @@ export class REXChatGPTSpider extends REXSpider {
                                   this.parseConversation(result).then((conversation) => {
                                     if (conversation !== null) {
                                       this.checkIfAlreadyTransmitted(convoRecord.id, convoRecord.lookupDate).then((transmitted:boolean) => {
-                                        console.log(`[rex-spider-chatgpt] Checked (again) ${convoRecord.id} / ${convoRecord.lookupDate.value}: ${transmitted} [4]`)
+                                        console.log(`[rex-spider-chatgpt] Checked (again) ${convoRecord.id} / ${convoRecord.lookupDate.value} / ${convoRecord.lookupDate.originalValue}: ${transmitted} [4]`)
 
                                         if (transmitted === false) {
                                           const payload: EventPayload = {
