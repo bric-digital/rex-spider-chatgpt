@@ -272,6 +272,8 @@ export class REXChatGPTSpider extends REXSpider {
                                   .then((isContained:boolean) => {
                                     if (isContained) {
                                       this.checkIfAlreadyTransmitted(item.id, updated).then((transmitted:boolean) => {
+                                        console.log(`[rex-spider-chatgpt] Checked ${item.id} / %{updated}: ${transmitted}`)
+
                                         if (transmitted === false) {
                                           inspectionRecords.push({
                                               id: item.id,
@@ -384,6 +386,8 @@ export class REXChatGPTSpider extends REXSpider {
                                       const updatedString = new DateString(timestamp)
 
                                       this.checkIfAlreadyTransmitted(item.id, updatedString).then((transmitted:boolean) => {
+                                        console.log(`[rex-spider-chatgpt] Checked ${item.id} / %{updated}: ${transmitted}`)
+
                                         if (transmitted === false) {
                                           inspectionRecords.push({
                                             id: item.id,
