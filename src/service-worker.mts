@@ -400,8 +400,8 @@ export class REXChatGPTSpider extends REXSpider {
                                 } else {
                                   this.crawlWindowContains(updated).then((include) => {
                                     if (include) {
-                                      const updatedString = new DateString(updated)
-                                      const startedString = new DateString(started)
+                                      const updatedString = new DateString(updated / 1000)
+                                      const startedString = new DateString(started / 1000)
 
                                       this.checkIfAlreadyTransmitted(item.id, updatedString).then((transmitted:boolean) => {
                                         console.log(`[rex-spider-chatgpt] Checked ${item.id} / ${updatedString.value} / ${updatedString.originalValue}: ${transmitted} [2]`)
