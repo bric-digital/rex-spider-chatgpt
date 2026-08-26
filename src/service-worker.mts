@@ -264,39 +264,45 @@ export class REXChatGPTSpider extends REXSpider {
 
                         if (item !== undefined) {
                           if (item['update_time'] !== undefined) {
-                            const updated = new DateString(item['update_time'])
+                            try {
+                              const updated = new DateString(item['update_time'])
 
-                            if (item.id !== undefined) {
-                              this.crawlWindowContains(updated.timestamp())
-                                .then((isContained:boolean) => {
-                                  if (isContained) {
-                                    this.checkIfAlreadyTransmitted(item.id, updated).then((transmitted:boolean) => {
-                                      if (transmitted === false) {
-                                        inspectionRecords.push({
-                                            id: item.id,
-                                            refresh: true,
-                                            lookupDate: updated
-                                        })
-                                      } else {
-                                        inspectionRecords.push({
-                                            id: item.id,
-                                            refresh: false,
-                                            lookupDate: updated
-                                        })
-                                      }
+                              if (item.id !== undefined) {
+                                this.crawlWindowContains(updated.timestamp())
+                                  .then((isContained:boolean) => {
+                                    if (isContained) {
+                                      this.checkIfAlreadyTransmitted(item.id, updated).then((transmitted:boolean) => {
+                                        if (transmitted === false) {
+                                          inspectionRecords.push({
+                                              id: item.id,
+                                              refresh: true,
+                                              lookupDate: updated
+                                          })
+                                        } else {
+                                          inspectionRecords.push({
+                                              id: item.id,
+                                              refresh: false,
+                                              lookupDate: updated
+                                          })
+                                        }
 
+                                        processNextItem()
+                                      })
+                                    } else {
                                       processNextItem()
-                                    })
-                                  } else {
-                                    processNextItem()
-                                  }
-                                })
-                            } else {
-                              processNextItem()
+                                    }
+                                  })
+                              } else {
+                                processNextItem()
+                              }
+                            } catch(err) {
+                              console.log(`[rex-spider-chatgpt] Unable to parse update_time ${item['update_time']} (${typeof item['update_time']}): ${err}`)
+
+                              reject(`Unable to parse update_time ${item['update_time']} (${typeof item['update_time']}): ${err}`)
                             }
-                        } else {
-                          processNextItem()
-                        }
+                          } else {
+                            processNextItem()
+                          }
                         }
                       }
                     }
@@ -304,8 +310,15 @@ export class REXChatGPTSpider extends REXSpider {
                     processNextItem()
                   }
                 } else {
-                  resolve(inspectionRecords)
+                  console.log(`[rex-spider-chatgpt] Received invalid body.items: ${body.items} (${typeof body.items}).`)
+
+                  reject(`Received invalid body.items: ${body.items} (${typeof body.items}).`)
                 }
+              })
+              .catch((err) => {
+                console.log(`[spider-chat-gpt] Unable to parse body into JSON at ${indexUrl}: ${err}`)
+
+                reject(`Unable to parse body into JSON at ${indexUrl}: ${err}`)
               })
             }
           })
@@ -486,6 +499,13 @@ export class REXChatGPTSpider extends REXSpider {
                                   checkNextProject()
                                 }, this.fetchCrawlDelay())
                               })
+                              .catch((err) => {
+                                console.log(`[rex-spider-gpt] Received error fetching conversations for project ID: ${gizmoId}: ${err}`)
+
+                                setTimeout(() => {
+                                  checkNextProject()
+                                }, this.fetchCrawlDelay())
+                              })
                           } else {
                             console.log(`[rex-spider-gpt] Received invalid project ID: ${gizmoId} (${typeof gizmoId})`)
 
@@ -634,6 +654,24 @@ export class REXChatGPTSpider extends REXSpider {
                                           }, this.fetchCrawlDelay())
                                         }
                                       })
+                                      .catch((err) => {
+                                        crawlResult.issues.push({
+                                          url: convoUrl,
+                                          message: `Error encountered checking prior conversation transmission: ${err}`
+                                        })
+
+                                        if (this.continueAfterError()) {
+                                          this.signalCrawlComplete(-1, crawledIds, `Error encountered checking prior conversation transmission: ${err}`, false)
+
+                                          setTimeout(() => {
+                                            fetchNextConversation()
+                                          }, this.fetchCrawlDelay())
+                                        } else {
+                                          this.signalCrawlComplete(-1, crawledIds, `Error encountered checking prior conversation transmission: ${err}`)
+
+                                          resolve(crawlResult)
+                                        }
+                                      })
                                     } else {
                                       setTimeout(() => {
                                         fetchNextConversation()
@@ -657,6 +695,24 @@ export class REXChatGPTSpider extends REXSpider {
                                       resolve(crawlResult)
                                     }
                                   })
+                                })
+                                .catch((err) => {
+                                  crawlResult.issues.push({
+                                    url: convoUrl,
+                                    message: `Unable to parse conversation JSON: ${err}.`
+                                  })
+
+                                  if (this.continueAfterError()) {
+                                    this.signalCrawlComplete(-1, crawledIds, `Unable to parse conversation list JSON: ${err}.`, false)
+
+                                    setTimeout(() => {
+                                      fetchNextConversation()
+                                    }, this.fetchCrawlDelay())
+                                  } else {
+                                    this.signalCrawlComplete(-1, crawledIds, `Unable to parse conversation list JSON: ${err}.`)
+
+                                    resolve(crawlResult)
+                                  }
                                 })
                               } else {
                                 crawlResult.issues.push({
@@ -754,6 +810,16 @@ export class REXChatGPTSpider extends REXSpider {
                       })
                   }, this.fetchCrawlDelay())
                 }
+              })
+              .catch((err) => {
+                this.signalCrawlComplete(-1, crawledIds, `Unable to read homepage body: ${err}.`)
+
+                crawlResult.issues.push({
+                  url: this.loginUrl(),
+                  message: `Unable to read homepage body: ${err}.`
+                })
+
+                resolve(crawlResult)
               })
             }
           })
