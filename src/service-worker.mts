@@ -632,6 +632,8 @@ export class REXChatGPTSpider extends REXSpider {
 
                   const fetchNextConversation = () => {
                     if (toCrawl.length === 0) {
+                      console.log(`[rex-spider-chatgpt] Conversations crawled successfully`)
+                      
                       this.signalCrawlComplete(dispatched, crawledIds, `Conversations crawled successfully.`)
 
                       resolve(crawlResult)
