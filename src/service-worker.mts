@@ -643,6 +643,8 @@ export class REXChatGPTSpider extends REXSpider {
                           crawledIds.push(convoRecord.id)
                         }
 
+                        console.log(`[rex-spider-chatgpt] convoRecord.refresh: ${convoRecord.refresh} -- ${convoRecord.id}`)
+
                         if (convoRecord.refresh) {
                           console.log(`[rex-spider-chatgpt] justSummarize: ${this.justSummarize()}`)
 
