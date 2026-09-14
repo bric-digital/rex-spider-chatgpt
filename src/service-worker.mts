@@ -83,7 +83,17 @@ export class REXChatGPTSpider extends REXSpider {
         metadata: conversationJson // TODO: Pull out so only populated on debug=true
       }
 
-      const turnIds = ['client-created-root']
+      const turnIds:string[] = []
+
+      for (const mappingId of Object.keys(conversationJson['mapping'])) {
+        const turn = conversationJson['mapping'][mappingId]
+
+        if (turn !== undefined) {
+          if (turn.parent === null) {
+            turnIds.push(turn.id)
+          }
+        }
+      }
 
       while (turnIds.length > 0) {
         const turnId = turnIds.shift()
@@ -644,28 +654,30 @@ export class REXChatGPTSpider extends REXSpider {
                         if (convoRecord.refresh) {
                           if (this.justSummarize()) {
                             this.checkIfAlreadyTransmitted(convoRecord.id, convoRecord.lookupDate).then((transmitted:boolean) => {
-                              const conversation: Conversation = {
-                                turns: [],
-                                platform: 'chatgpt',
-                                identifier: convoRecord.id,
-                                started: convoRecord.startDate,
-                                ended: convoRecord.lookupDate,
+                              if (transmitted === false) {
+                                const conversation: Conversation = {
+                                  turns: [],
+                                  platform: 'chatgpt',
+                                  identifier: convoRecord.id,
+                                  started: convoRecord.startDate,
+                                  ended: convoRecord.lookupDate,
+                                }
+
+                                const payload: EventPayload = {
+                                  name: 'rex-conversation',
+                                  'is_summary': true,
+                                  date: convoRecord.lookupDate.value?.epochMilliseconds,
+                                  ...conversation
+                                }
+
+                                dispatchEvent(payload)
+
+                                dispatched += 1
+
+                                this.logTransmitted(convoRecord.id, convoRecord.lookupDate).then(() => {
+                                  fetchNextConversation()
+                                })
                               }
-
-                              const payload: EventPayload = {
-                                name: 'rex-conversation',
-                                'is_summary': true,
-                                date: convoRecord.lookupDate.value?.epochMilliseconds,
-                                ...conversation
-                              }
-
-                              dispatchEvent(payload)
-
-                              dispatched += 1
-
-                              this.logTransmitted(convoRecord.id, convoRecord.lookupDate).then(() => {
-                                fetchNextConversation()
-                              })
                             })
                           } else {
                             const convoUrl = `https://chatgpt.com/backend-api/conversation/${convoRecord.id}`

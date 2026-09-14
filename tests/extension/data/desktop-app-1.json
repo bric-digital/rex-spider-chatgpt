@@ -1,0 +1,128 @@
+{
+  "title": "Desktop check",
+  "create_time": 1788875378.860026,
+  "update_time": 1788875383.781127,
+  "moderation_results": [],
+  "plugin_ids": null,
+  "conversation_id": "6aa01272-2688-83e9-ad53-fa714a50f3fe",
+  "conversation_template_id": null,
+  "gizmo_id": null,
+  "gizmo_type": null,
+  "is_archived": false,
+  "is_starred": null,
+  "safe_urls": [
+    "https://www.openai.com",
+    "https://www.progressive.com",
+    "https://docs.google.com/document/d/",
+    "https://github.com/openclaw/openclaw",
+    "https://www.apple.com/",
+    "https://www.statefarm.com"
+  ],
+  "blocked_urls": [],
+  "default_model_slug": "auto",
+  "atlas_mode_enabled": null,
+  "conversation_origin": null,
+  "is_read_only": null,
+  "voice": null,
+  "async_status": null,
+  "disabled_tool_ids": [],
+  "is_temporary_chat": false,
+  "is_do_not_remember": false,
+  "memory_scope": "global_enabled",
+  "context_scopes": null,
+  "sugar_item_id": null,
+  "sugar_item_visible": false,
+  "pinned_time": null,
+  "is_study_mode": false,
+  "owner": null,
+  "mapping": {
+    "3b58b85c-3ee1-4281-9309-0f6a23c1cc68": {
+      "id": "3b58b85c-3ee1-4281-9309-0f6a23c1cc68",
+      "message": null,
+      "parent": null,
+      "children": [
+        "599f667b-496a-4a5c-8001-a7bc54c6a1f3"
+      ]
+    },
+    "599f667b-496a-4a5c-8001-a7bc54c6a1f3": {
+      "id": "599f667b-496a-4a5c-8001-a7bc54c6a1f3",
+      "message": {
+        "id": "599f667b-496a-4a5c-8001-a7bc54c6a1f3",
+        "author": {
+          "role": "user",
+          "name": null,
+          "metadata": {}
+        },
+        "create_time": 1788875380.116,
+        "update_time": 1788875383.744178,
+        "content": {
+          "content_type": "text",
+          "parts": [
+            "desktop check"
+          ]
+        },
+        "status": "finished_successfully",
+        "end_turn": null,
+        "weight": 1,
+        "metadata": {
+          "request_id": "da098f15-e103-4bf8-b41a-cf7c81af922c",
+          "message_source": null,
+          "turn_exchange_id": "a62d6478-2936-418b-a52a-46385585dd89",
+          "working_turn_id": "a62d6478-2936-418b-a52a-46385585dd89",
+          "can_save": false
+        },
+        "recipient": "all",
+        "channel": null
+      },
+      "parent": "3b58b85c-3ee1-4281-9309-0f6a23c1cc68",
+      "children": [
+        "af119a4f-939b-48e6-8597-27e93d27c09f"
+      ]
+    },
+    "af119a4f-939b-48e6-8597-27e93d27c09f": {
+      "id": "af119a4f-939b-48e6-8597-27e93d27c09f",
+      "message": {
+        "id": "af119a4f-939b-48e6-8597-27e93d27c09f",
+        "author": {
+          "role": "assistant",
+          "name": null,
+          "metadata": {}
+        },
+        "create_time": 1788875381.427225,
+        "update_time": 1788875383.648953,
+        "content": {
+          "content_type": "text",
+          "parts": [
+            "Desktop check received. Everything looks good."
+          ]
+        },
+        "status": "finished_successfully",
+        "end_turn": true,
+        "weight": 1,
+        "metadata": {
+          "citations": [],
+          "content_references": [],
+          "resolved_model_slug": "gpt-5-6",
+          "search_result_groups": [],
+          "cot_version": "v5",
+          "conversation_followup_suggestions_eligible": true,
+          "request_id": "da098f15-e103-4bf8-b41a-cf7c81af922c",
+          "message_type": "next",
+          "turn_exchange_id": "a62d6478-2936-418b-a52a-46385585dd89",
+          "working_turn_id": "a62d6478-2936-418b-a52a-46385585dd89",
+          "model_slug": "gpt-5-6",
+          "default_model_slug": "auto",
+          "can_save": true,
+          "parent_id": "0a02a51e-cf3d-461e-a22b-3fd9568fc675",
+          "model_switcher_deny": []
+        },
+        "recipient": "all",
+        "channel": "final"
+      },
+      "parent": "599f667b-496a-4a5c-8001-a7bc54c6a1f3",
+      "children": []
+    }
+  },
+  "current_node": "af119a4f-939b-48e6-8597-27e93d27c09f",
+  "context_truncation_continuation": null
+}

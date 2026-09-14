@@ -1,0 +1,138 @@
+{
+  "title": "Browser test",
+  "create_time": 1788875177.916143,
+  "update_time": 1788875221.641478,
+  "moderation_results": [],
+  "plugin_ids": null,
+  "conversation_id": "6aa011a9-1c48-83e9-910c-0a4e99fbb317",
+  "conversation_template_id": null,
+  "gizmo_id": null,
+  "gizmo_type": null,
+  "is_archived": false,
+  "is_starred": null,
+  "safe_urls": [
+    "https://github.com/openclaw/openclaw",
+    "https://www.openai.com",
+    "https://www.progressive.com",
+    "https://www.statefarm.com",
+    "https://docs.google.com/document/d/",
+    "https://www.apple.com/"
+  ],
+  "blocked_urls": [],
+  "default_model_slug": "auto",
+  "atlas_mode_enabled": null,
+  "conversation_origin": null,
+  "is_read_only": null,
+  "voice": null,
+  "async_status": null,
+  "disabled_tool_ids": [],
+  "is_temporary_chat": false,
+  "is_do_not_remember": false,
+  "memory_scope": "global_enabled",
+  "context_scopes": null,
+  "sugar_item_id": null,
+  "sugar_item_visible": false,
+  "pinned_time": null,
+  "is_study_mode": false,
+  "owner": null,
+  "mapping": {
+    "client-created-root": {
+      "id": "client-created-root",
+      "message": null,
+      "parent": null,
+      "children": [
+        "0a0b35b3-e09e-417e-8daf-c3a732d14cbc"
+      ]
+    },
+    "0a0b35b3-e09e-417e-8daf-c3a732d14cbc": {
+      "id": "0a0b35b3-e09e-417e-8daf-c3a732d14cbc",
+      "message": {
+        "id": "0a0b35b3-e09e-417e-8daf-c3a732d14cbc",
+        "author": {
+          "role": "user",
+          "name": null,
+          "metadata": {}
+        },
+        "create_time": 1788875217.438,
+        "update_time": 1788875221.619728,
+        "content": {
+          "content_type": "text",
+          "parts": [
+            "different browser test"
+          ]
+        },
+        "status": "finished_successfully",
+        "end_turn": null,
+        "weight": 1,
+        "metadata": {
+          "serialization_metadata": {
+            "custom_symbol_offsets": []
+          },
+          "request_id": "f234c34e-a003-4255-a5ca-6e04edf4bbea",
+          "message_source": null,
+          "turn_exchange_id": "abce7d8f-aa86-445a-a6a6-a0229838be39",
+          "working_turn_id": "abce7d8f-aa86-445a-a6a6-a0229838be39",
+          "can_save": false
+        },
+        "recipient": "all",
+        "channel": null
+      },
+      "parent": "client-created-root",
+      "children": [
+        "ba961a85-2d79-40ae-868a-f23f48a87bc1"
+      ]
+    },
+    "ba961a85-2d79-40ae-868a-f23f48a87bc1": {
+      "id": "ba961a85-2d79-40ae-868a-f23f48a87bc1",
+      "message": {
+        "id": "ba961a85-2d79-40ae-868a-f23f48a87bc1",
+        "author": {
+          "role": "assistant",
+          "name": null,
+          "metadata": {}
+        },
+        "create_time": 1788875218.031505,
+        "update_time": 1788875221.388375,
+        "content": {
+          "content_type": "text",
+          "parts": [
+            "Yep — this message came through successfully from the different browser."
+          ]
+        },
+        "status": "finished_successfully",
+        "end_turn": true,
+        "weight": 1,
+        "metadata": {
+          "finish_details": {
+            "type": "stop",
+            "stop_tokens": [
+              200002
+            ]
+          },
+          "is_complete": true,
+          "citations": [],
+          "content_references": [],
+          "resolved_model_slug": "gpt-5-6",
+          "search_result_groups": [],
+          "cot_version": "v5",
+          "conversation_followup_suggestions_eligible": true,
+          "request_id": "f234c34e-a003-4255-a5ca-6e04edf4bbea",
+          "message_type": "next",
+          "turn_exchange_id": "abce7d8f-aa86-445a-a6a6-a0229838be39",
+          "working_turn_id": "abce7d8f-aa86-445a-a6a6-a0229838be39",
+          "model_slug": "gpt-5-6",
+          "default_model_slug": "auto",
+          "can_save": true,
+          "parent_id": "67b0763f-dfc7-4ffd-b5b5-cebbf684e464",
+          "model_switcher_deny": []
+        },
+        "recipient": "all",
+        "channel": "final"
+      },
+      "parent": "0a0b35b3-e09e-417e-8daf-c3a732d14cbc",
+      "children": []
+    }
+  },
+  "current_node": "ba961a85-2d79-40ae-868a-f23f48a87bc1",
+  "context_truncation_continuation": null
+}

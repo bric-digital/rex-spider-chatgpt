@@ -1,0 +1,137 @@
+{
+  "title": "Storing Fresh Ginger",
+  "create_time": 1788462951.356777,
+  "update_time": 1788462954.172617,
+  "moderation_results": [],
+  "plugin_ids": null,
+  "conversation_id": "6a99c765-c670-83e9-8fcb-8eb222ad4c6c",
+  "conversation_template_id": null,
+  "gizmo_id": null,
+  "gizmo_type": null,
+  "is_archived": false,
+  "is_starred": null,
+  "safe_urls": [
+    "https://www.progressive.com",
+    "https://github.com/openclaw/openclaw",
+    "https://www.statefarm.com",
+    "https://docs.google.com/document/d/",
+    "https://www.apple.com/",
+    "https://www.openai.com"
+  ],
+  "blocked_urls": [],
+  "default_model_slug": "auto",
+  "atlas_mode_enabled": null,
+  "conversation_origin": null,
+  "is_read_only": null,
+  "voice": null,
+  "async_status": null,
+  "disabled_tool_ids": [],
+  "is_temporary_chat": false,
+  "is_do_not_remember": false,
+  "memory_scope": "global_enabled",
+  "context_scopes": null,
+  "sugar_item_id": null,
+  "sugar_item_visible": false,
+  "pinned_time": null,
+  "is_study_mode": false,
+  "owner": null,
+  "mapping": {
+    "client-created-root": {
+      "id": "client-created-root",
+      "message": null,
+      "parent": null,
+      "children": [
+        "eb0ed707-9634-46d2-b528-84749d147818"
+      ]
+    },
+    "eb0ed707-9634-46d2-b528-84749d147818": {
+      "id": "eb0ed707-9634-46d2-b528-84749d147818",
+      "message": {
+        "id": "eb0ed707-9634-46d2-b528-84749d147818",
+        "author": {
+          "role": "user",
+          "name": null,
+          "metadata": {}
+        },
+        "create_time": 1788462950.443,
+        "update_time": 1788462954.153318,
+        "content": {
+          "content_type": "text",
+          "parts": [
+            "What is a good way to store fresh ginger so it lasts? (probe-mtlwnuy2)"
+          ]
+        },
+        "status": "finished_successfully",
+        "end_turn": null,
+        "weight": 1,
+        "metadata": {
+          "serialization_metadata": {
+            "custom_symbol_offsets": []
+          },
+          "request_id": "257c5e9e-1f7d-4df7-b40a-711a97a356d9",
+          "message_source": null,
+          "turn_exchange_id": "01154974-58ac-4b9e-806f-26c83f7d33b9",
+          "working_turn_id": "01154974-58ac-4b9e-806f-26c83f7d33b9",
+          "can_save": false
+        },
+        "recipient": "all",
+        "channel": null
+      },
+      "parent": "client-created-root",
+      "children": [
+        "833c8f09-050e-42e4-8b54-9d2ffed54143"
+      ]
+    },
+    "833c8f09-050e-42e4-8b54-9d2ffed54143": {
+      "id": "833c8f09-050e-42e4-8b54-9d2ffed54143",
+      "message": {
+        "id": "833c8f09-050e-42e4-8b54-9d2ffed54143",
+        "author": {
+          "role": "assistant",
+          "name": null,
+          "metadata": {}
+        },
+        "create_time": 1788462951.293378,
+        "update_time": 1788462953.994543,
+        "content": {
+          "content_type": "text",
+          "parts": [
+            "A good way to store fresh ginger depends on how long you want it to last:\n\n- **For a few weeks:** Keep unpeeled ginger in a **sealed bag or airtight container in the refrigerator**. Remove as much air as possible before sealing.\n- **For several months:** **Freeze it whole, unpeeled.** When you need some, grate it directly from frozen—no thawing necessary.\n- **Avoid:** Leaving fresh ginger at room temperature for long periods, especially once it has been cut.\n\n**Best overall method:** Freeze the ginger in a freezer bag. It stays usable for months and is very convenient for cooking."
+          ]
+        },
+        "status": "finished_successfully",
+        "end_turn": true,
+        "weight": 1,
+        "metadata": {
+          "finish_details": {
+            "type": "stop",
+            "stop_tokens": [
+              200002
+            ]
+          },
+          "is_complete": true,
+          "citations": [],
+          "content_references": [],
+          "resolved_model_slug": "gpt-5-6",
+          "search_result_groups": [],
+          "cot_version": "v5",
+          "request_id": "257c5e9e-1f7d-4df7-b40a-711a97a356d9",
+          "message_type": "next",
+          "turn_exchange_id": "01154974-58ac-4b9e-806f-26c83f7d33b9",
+          "working_turn_id": "01154974-58ac-4b9e-806f-26c83f7d33b9",
+          "model_slug": "gpt-5-6",
+          "default_model_slug": "auto",
+          "can_save": true,
+          "parent_id": "97aad8c7-e76d-4030-b6bb-643e04c44ece",
+          "model_switcher_deny": []
+        },
+        "recipient": "all",
+        "channel": "final"
+      },
+      "parent": "eb0ed707-9634-46d2-b528-84749d147818",
+      "children": []
+    }
+  },
+  "current_node": "833c8f09-050e-42e4-8b54-9d2ffed54143",
+  "context_truncation_continuation": null
+}
