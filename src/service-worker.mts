@@ -677,6 +677,8 @@ export class REXChatGPTSpider extends REXSpider {
                                 this.logTransmitted(convoRecord.id, convoRecord.lookupDate).then(() => {
                                   fetchNextConversation()
                                 })
+                              } else {
+                                fetchNextConversation()
                               }
                             })
                           } else {
