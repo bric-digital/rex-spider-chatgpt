@@ -95,6 +95,12 @@ export class REXChatGPTSpider extends REXSpider {
         }
       }
 
+      if (turnIds.includes('client-created-root' )) {
+        conversation.user_agent = 'Browser'
+      } else {
+        conversation.user_agent = 'App (Mobile or Desktop)'
+      }
+
       while (turnIds.length > 0) {
         const turnId = turnIds.shift()
 
