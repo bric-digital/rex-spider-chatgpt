@@ -1,0 +1,137 @@
+{
+  "title": "Test acknowledgment",
+  "create_time": 1788875074.629405,
+  "update_time": 1788875079.643261,
+  "moderation_results": [],
+  "plugin_ids": null,
+  "conversation_id": "6aa01141-bd84-83ea-a3a8-db8a358fe60f",
+  "conversation_template_id": null,
+  "gizmo_id": null,
+  "gizmo_type": null,
+  "is_archived": false,
+  "is_starred": null,
+  "safe_urls": [
+    "https://github.com/openclaw/openclaw",
+    "https://www.progressive.com",
+    "https://www.statefarm.com",
+    "https://www.openai.com",
+    "https://docs.google.com/document/d/",
+    "https://www.apple.com/"
+  ],
+  "blocked_urls": [],
+  "default_model_slug": "auto",
+  "atlas_mode_enabled": null,
+  "conversation_origin": null,
+  "is_read_only": null,
+  "voice": null,
+  "async_status": null,
+  "disabled_tool_ids": [],
+  "is_temporary_chat": false,
+  "is_do_not_remember": false,
+  "memory_scope": "global_enabled",
+  "context_scopes": null,
+  "sugar_item_id": null,
+  "sugar_item_visible": false,
+  "pinned_time": null,
+  "is_study_mode": false,
+  "owner": null,
+  "mapping": {
+    "8251c804-fb66-48fe-909c-cd6f70a7bb28": {
+      "id": "8251c804-fb66-48fe-909c-cd6f70a7bb28",
+      "message": null,
+      "parent": null,
+      "children": [
+        "0221eae7-ab49-4ebd-a5d1-7c53c00e40bd"
+      ]
+    },
+    "0221eae7-ab49-4ebd-a5d1-7c53c00e40bd": {
+      "id": "0221eae7-ab49-4ebd-a5d1-7c53c00e40bd",
+      "message": {
+        "id": "0221eae7-ab49-4ebd-a5d1-7c53c00e40bd",
+        "author": {
+          "role": "user",
+          "name": null,
+          "metadata": {}
+        },
+        "create_time": 1788875076.064358,
+        "update_time": 1788875079.601557,
+        "content": {
+          "content_type": "text",
+          "parts": [
+            "test 2"
+          ]
+        },
+        "status": "finished_successfully",
+        "end_turn": null,
+        "weight": 1,
+        "metadata": {
+          "triggered_by_system_hint_suggestion": false,
+          "dictation": false,
+          "request_id": "e3b8cab6-812d-40ad-acca-1a13d9adb328",
+          "message_source": null,
+          "turn_exchange_id": "f6dac53e-caf5-40d3-b037-22d7e6c05dfc",
+          "working_turn_id": "f6dac53e-caf5-40d3-b037-22d7e6c05dfc",
+          "can_save": false
+        },
+        "recipient": "all",
+        "channel": null
+      },
+      "parent": "8251c804-fb66-48fe-909c-cd6f70a7bb28",
+      "children": [
+        "f40978c8-86ad-430f-83ce-cc7eb9001658"
+      ]
+    },
+    "f40978c8-86ad-430f-83ce-cc7eb9001658": {
+      "id": "f40978c8-86ad-430f-83ce-cc7eb9001658",
+      "message": {
+        "id": "f40978c8-86ad-430f-83ce-cc7eb9001658",
+        "author": {
+          "role": "assistant",
+          "name": null,
+          "metadata": {}
+        },
+        "create_time": 1788875076.846142,
+        "update_time": 1788875079.481443,
+        "content": {
+          "content_type": "text",
+          "parts": [
+            "Test 2 received successfully."
+          ]
+        },
+        "status": "finished_successfully",
+        "end_turn": true,
+        "weight": 1,
+        "metadata": {
+          "finish_details": {
+            "type": "stop",
+            "stop_tokens": [
+              200002
+            ]
+          },
+          "is_complete": true,
+          "citations": [],
+          "content_references": [],
+          "resolved_model_slug": "gpt-5-6",
+          "search_result_groups": [],
+          "cot_version": "v5",
+          "conversation_followup_suggestions_eligible": true,
+          "request_id": "e3b8cab6-812d-40ad-acca-1a13d9adb328",
+          "message_type": "next",
+          "turn_exchange_id": "f6dac53e-caf5-40d3-b037-22d7e6c05dfc",
+          "working_turn_id": "f6dac53e-caf5-40d3-b037-22d7e6c05dfc",
+          "model_slug": "gpt-5-6",
+          "default_model_slug": "auto",
+          "can_save": true,
+          "parent_id": "21d28a34-920e-4473-a691-57cf46e6980b",
+          "model_switcher_deny": []
+        },
+        "recipient": "all",
+        "channel": "final"
+      },
+      "parent": "0221eae7-ab49-4ebd-a5d1-7c53c00e40bd",
+      "children": []
+    }
+  },
+  "current_node": "f40978c8-86ad-430f-83ce-cc7eb9001658",
+  "context_truncation_continuation": null
+}
