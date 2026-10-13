@@ -520,32 +520,40 @@ export class REXChatGPTSpider extends REXSpider {
                         } else {
                           const item = toCheck.pop()
 
-                          const gizmoId = item.gizmo.gizmo.id
+                          try {
+                            const gizmoId = item.gizmo.gizmo.id
 
-                          if (check.string(gizmoId) && gizmoId.startsWith('g-p-')) {
-                            this.fetchConversationRecordsForProject(gizmoId)
-                              .then((projectRecords) => {
-                                if (check.array(projectRecords)) {
-                                  for (const conversationRecord of projectRecords) {
-                                    if (conversationRecords.includes(conversationRecord) === false) {
-                                      conversationRecords.push(conversationRecord)
+                            if (check.string(gizmoId) && gizmoId.startsWith('g-p-')) {
+                              this.fetchConversationRecordsForProject(gizmoId)
+                                .then((projectRecords) => {
+                                  if (check.array(projectRecords)) {
+                                    for (const conversationRecord of projectRecords) {
+                                      if (conversationRecords.includes(conversationRecord) === false) {
+                                        conversationRecords.push(conversationRecord)
+                                      }
                                     }
                                   }
-                                }
 
-                                setTimeout(() => {
-                                  checkNextProject()
-                                }, this.fetchCrawlDelay())
-                              })
-                              .catch((err) => {
-                                console.log(`[rex-spider-gpt] Received error fetching conversations for project ID: ${gizmoId}: ${err}`)
+                                  setTimeout(() => {
+                                    checkNextProject()
+                                  }, this.fetchCrawlDelay())
+                                })
+                                .catch((err) => {
+                                  console.log(`[rex-spider-gpt] Received error fetching conversations for project ID: ${gizmoId}: ${err}`)
 
-                                setTimeout(() => {
-                                  checkNextProject()
-                                }, this.fetchCrawlDelay())
-                              })
-                          } else {
-                            console.log(`[rex-spider-gpt] Received invalid project ID: ${gizmoId} (${typeof gizmoId})`)
+                                  setTimeout(() => {
+                                    checkNextProject()
+                                  }, this.fetchCrawlDelay())
+                                })
+                            } else {
+                              console.log(`[rex-spider-gpt] Received invalid project ID: ${gizmoId} (${typeof gizmoId})`)
+
+                              setTimeout(() => {
+                                checkNextProject()
+                              }, this.fetchCrawlDelay())
+                            }
+                          } catch (err) {
+                            console.log(`[rex-spider-gpt] Error encountered parsing item for project ID: ${err}`)
 
                             setTimeout(() => {
                               checkNextProject()
