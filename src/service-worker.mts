@@ -1,95 +1,24 @@
+import check from 'check-types'
+
 import { Conversation, Turn, DateString, Citation, Search } from '@bric/rex-types/types'
 
-import rexCorePlugin, { EventPayload, dispatchEvent } from '@bric/rex-core/service-worker'
-import rexSpiderPlugin, { REXSpider } from '@bric/rex-spider/service-worker'
-
-import { CrawlTarget, shouldCrawl } from './crawl-target.mjs'
+import { EventPayload, dispatchEvent } from '@bric/rex-core/service-worker'
+import rexSpiderPlugin, { REXSpider, REXSpiderCrawlResult, REXSpiderCrawlInspection } from '@bric/rex-spider/service-worker'
 
 export class REXChatGPTSpider extends REXSpider {
-  sleepDelayMs: number = 10000
-  lookbackDays: number = 30
-  maxIndexPages: number = 50
-  syncing: boolean = false
-  lastSync: number = 0
-  syncPeriod: number = 300000
   accessToken: string | null = null
-  // Whether routine per-run *-complete events are emitted (config
-  // spider.chatgpt.emit_run_complete). Watchdog-recovered completions are
-  // always emitted regardless.
-  emitRunComplete: boolean = true
-  // Guards dispatchCompletionEvent against double-fire from the watchdog
-  // racing a natural-path terminal branch. Reset at the top of each
-  // checkNeedsUpdate run.
-  private completed: boolean = false
-
-  constructor() {
-    super()
-
-    // Override sleepDelayMs / lookbackDays / maxIndexPages from server config if provided.
-    rexCorePlugin.fetchConfiguration()
-      .then((config) => {
-        const spiderConfig = (config as Record<string, any>)?.spider?.chatgpt // eslint-disable-line @typescript-eslint/no-explicit-any
-        const configuredDelay = spiderConfig?.sleep_delay_ms
-        if (typeof configuredDelay === 'number') {
-          this.sleepDelayMs = configuredDelay
-        }
-        const configuredLookback = spiderConfig?.lookback_days
-        if (typeof configuredLookback === 'number') {
-          this.lookbackDays = configuredLookback
-        }
-        const configuredMaxPages = spiderConfig?.max_index_pages
-        if (typeof configuredMaxPages === 'number') {
-          this.maxIndexPages = configuredMaxPages
-        }
-        const configuredEmitRunComplete = spiderConfig?.emit_run_complete
-        if (typeof configuredEmitRunComplete === 'boolean') {
-          this.emitRunComplete = configuredEmitRunComplete
-        }
-      })
-      .catch((err) => console.warn('[rex-spider-chatgpt] Failed to read spider config:', err))
-  }
-
-  private dispatchCompletionEvent(crawledCount: number, accountCompleteReason: 'date-floor' | 'exhausted' | null = null, recovered: boolean = false): void {
-    if (this.completed) return
-    this.completed = true
-    // Delay mirrors the rex-history completion pattern: waits for PDK's
-    // persist debounce to expire so queued events flush before the signal.
-    setTimeout(() => {
-      // The per-run event fires on every exit path including errors and
-      // skips; deployments that only consume account-complete can silence it
-      // via config spider.chatgpt.emit_run_complete: false. A completion the
-      // watchdog recovered is always emitted, marked recovered_via so
-      // consumers (e.g. Keystone offboarding) can treat it as terminal.
-      if (recovered || this.emitRunComplete) {
-        dispatchEvent({
-          name: 'pdk-app-event',
-          event_name: 'rex-spider-chatgpt-complete',
-          event_details: {
-            crawled_count: crawledCount,
-            date: Date.now(),
-            ...(recovered ? { recovered_via: 'watchdog' } : {})
-          }
-        })
-      }
-
-      // Account-complete only accompanies runs that enumerated the full
-      // account (index paging ended at the cutoff or ran out of items, and
-      // every queued conversation was captured).
-      if (accountCompleteReason !== null) {
-        this.signalAccountComplete({
-          reason: accountCompleteReason,
-          crawled_count: crawledCount
-        })
-      }
-    }, 1100)
-  }
+  pageSize:number = 28
 
   fetchUrls(): string[] {
-    return ['https://www.perplexity.ai/library']
+    return ['https://www.chatgpt.com/']
   }
 
   name(): string {
     return 'ChatGPT'
+  }
+
+  identifier(): string {
+    return 'chatgpt'
   }
 
   loginUrl(): string {
@@ -102,7 +31,6 @@ export class REXChatGPTSpider extends REXSpider {
 
   checkLogin(): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
-      console.log(`[rex-spider-chatgpt] checkLogin`)
       const indexUrl = 'https://chatgpt.com/'
 
       fetch(indexUrl)
@@ -114,8 +42,6 @@ export class REXChatGPTSpider extends REXSpider {
               if (lines !== null) {
                 for (const line of lines) {
                   if (line.includes('"accessToken"')) {
-                    console.log(`[rex-spider-chatgpt] accessToken present.`)
-
                     resolve(true)
                   }
                 }
@@ -130,532 +56,18 @@ export class REXChatGPTSpider extends REXSpider {
     })
   }
 
-  checkNeedsUpdate(): Promise<boolean> {
-    console.log(`[rex-spider-chatgpt] checkNeedsUpdate`)
-
-    return new Promise<boolean>((resolve) => {
-      // Reset completion-idempotency flag at the top of every entry so the
-      // "too soon to sync" short-circuit and full runs can each fire exactly
-      // one *-complete event for that round.
-      this.completed = false
-
-      if (this.syncing) {
-        console.log(`[rex-spider-chatgpt] Still syncing. Skipping this round...`)
-        resolve(true)
-
-        return
-      }
-
-      const fetchLastSync = {
-        messageType: 'fetchValue',
-        key: 'rex-spider-chatgpt-last-sync'
-      }
-
-      rexCorePlugin.handleMessage(fetchLastSync, this, (response) => {
-        let timestamp = 0
-
-        if (response !== null) {
-          timestamp = response
-        }
-
-        if (Date.now() < timestamp + this.syncPeriod) {
-          console.log(`[rex-spider-chatgpt] Too soon to sync again. Skipping this round...`)
-          this.dispatchCompletionEvent(0)
-          resolve(true)
-
-          return
-        }
-
-        const storeMessage = {
-          messageType: 'storeValue',
-          key: 'rex-spider-chatgpt-last-sync',
-          value: Date.now()
-        }
-
-        rexCorePlugin.handleMessage(storeMessage, this, (response) => { // eslint-disable-line @typescript-eslint/no-unused-vars
-          this.syncing = true
-
-          // Arm the rex-spider watchdog. If the run wedges (hung fetch,
-          // parser exception that escapes the catch chain, etc.), the
-          // watchdog runs onTimeout below to clear `syncing`, dispatch
-          // *-complete, and let offboarding proceed. The completed flag
-          // on dispatchCompletionEvent prevents a double-fire if a
-          // delayed natural-path branch later runs to completion.
-          this.beginRun(() => {
-            this.syncing = false
-            // recovered=true: marked recovered_via 'watchdog' and emitted even
-            // when routine per-run completes are silenced — offboarding needs it.
-            this.dispatchCompletionEvent(0, null, true) // crawled count unknown from here
-            resolve(true)
-          })
-
-          const homeUrl = 'https://chatgpt.com/'
-
-          fetch(homeUrl)
-            .then((response: Response) => {
-              if (!response.ok) {
-                console.log(`[rex-spider-chatgpt] Homepage fetch failed (status ${response.status}).`)
-                this.syncing = false
-                this.endRun()
-                this.dispatchCompletionEvent(0)
-                resolve(true) // Error - fall back to DOM scraping...
-                return
-              }
-
-              response.text().then((rawHtml) => {
-                const lines = rawHtml.match(/[^\r\n]+/g)
-
-                if (lines !== null) {
-                  for (const line of lines) {
-                    if (line.includes('"accessToken"')) {
-                      console.log(`[rex-spider-chatgpt] accessToken present.`)
-
-                      const startIndex = line.indexOf('"accessToken":"')
-
-                      if (startIndex !== -1) {
-                        const prefixStripped = line.substring(startIndex)
-
-                        const tokens = prefixStripped.split('"')
-
-                        if (tokens.length > 3) {
-                          this.accessToken = tokens[3]
-                        }
-                      }
-                    }
-                  }
-                }
-
-                if (this.accessToken === null) {
-                  console.log(`[rex-spider-chatgpt] No access token — user is not logged in.`)
-                  this.syncing = false
-                  this.endRun()
-                  this.dispatchCompletionEvent(0)
-                  resolve(true) // Not logged in — fall back to DOM scraping...
-                  return
-                }
-
-                console.log(`[rex-spider-chatgpt] USING ACCESS TOKEN: ${this.accessToken}`)
-
-                this.pagingCutoff().then((cutoff) => {
-                  if (this.accessToken !== null) {
-                    this.pageIndex(this.accessToken, cutoff).then(async (pagingResult) => {
-                      if (pagingResult.firstPageFailed) {
-                        this.syncing = false
-                        this.endRun()
-                        this.dispatchCompletionEvent(0)
-                        resolve(true) // Error - fall back to DOM scraping...
-                        return
-                      }
-
-                      const toCrawl = pagingResult.toCrawl
-
-                      // Non-null only while this run is still on track to have
-                      // enumerated the entire account (loose conversations AND
-                      // projects). Any cap, page failure, or crawl failure
-                      // clears it, suppressing the account-complete signal.
-                      let accountEndReason = pagingResult.endReason
-
-                      if (this.accessToken !== null) {
-                        // Also page conversations that live inside Projects (gizmos).
-                        // A partial failure here is non-fatal: whatever project URLs we did
-                        // collect are still appended, and loose conversations already crawled.
-                        const projectResult = await this.pageProjectIndex(this.accessToken, cutoff, toCrawl)
-
-                        if (projectResult.partialFailure) {
-                          console.log(`[rex-spider-chatgpt] Project enumeration hit a partial failure — using whatever was collected.`)
-                        }
-
-                        if (projectResult.complete === false) {
-                          accountEndReason = null
-                        }
-
-                        for (const target of projectResult.toCrawl) {
-                          if (!toCrawl.some((t) => t.conversationId === target.conversationId)) {
-                            toCrawl.push(target)
-                          }
-                        }
-
-                      }
-
-
-                      let crawledCount = 0
-
-                      console.log(`[rex-spider-chatgpt] Crawl list:`)
-                      console.log(toCrawl)
-
-                      if (toCrawl.length === 0) {
-                        this.syncing = false
-                        this.endRun()
-                        this.dispatchCompletionEvent(0, accountEndReason)
-                        resolve(false)
-                        return
-                      }
-
-                      const fetchConvo = () => {
-                        if (toCrawl.length == 0) {
-                          this.syncing = false
-                          this.endRun()
-                          this.dispatchCompletionEvent(crawledCount, accountEndReason)
-                          resolve(false)
-                          return
-                        }
-
-                        self.setTimeout(() => {
-                          const next = toCrawl.shift()!
-                          console.log(`[rex-spider-chatgpt] Crawl: ${next.url}`)
-
-                          fetch(next.url, {
-                            method: 'GET',
-                            headers: {
-                              'Authorization': `Bearer ${this.accessToken}`
-                            }
-                          })
-                            .then((convoResponse: Response) => {
-                              if (convoResponse.ok) {
-                                convoResponse.json().then((result) => {
-                                  this.parseConversation(result).then((payload) => {
-                                    console.log(`[rex-spider-chatgpt] log:`)
-                                    console.log(payload)
-
-                                    if (payload !== null) {
-                                      dispatchEvent(payload)
-                                      crawledCount += 1
-                                      this.noteProgress()
-                                      this.storeLastUpdate(next.conversationId, next.listingUpdateMs)
-                                        .catch((err) => console.log(`[rex-spider-chatgpt] storeLastUpdate failed for ${next.conversationId}:`, err))
-                                        .finally(() => fetchConvo())
-                                      return
-                                    }
-
-                                    accountEndReason = null // conversation yielded no payload — account not fully captured
-                                    fetchConvo()
-                                  })
-                                })
-                              } else {
-                                console.log(`[rex-spider-chatgpt] Crawl failed ${next.url}. Response:`)
-                                console.log(convoResponse)
-
-                                this.syncing = false
-                                this.endRun()
-                                this.dispatchCompletionEvent(crawledCount)
-                                resolve(true) // Error - fall back to DOM scraping...
-                              }
-                            })
-                            .catch((err) => {
-                              // Any throw inside the fetch/json/parse chain (bad payload,
-                              // DateString rejection, etc.) must not leave syncing=true,
-                              // or every subsequent round prints "Still syncing..." and
-                              // the spider is wedged until the service worker restarts.
-                              // Log this conversation as failed and continue with the rest.
-                              console.log(`[rex-spider-chatgpt] Crawl errored for ${next.url}:`, err)
-                              accountEndReason = null // this conversation was not captured; retried next run
-                              fetchConvo()
-                            })
-                        }, this.sleepDelayMs)
-                      }
-
-                      fetchConvo()
-                    })
-
-                  }
-                })
-              })
-            })
-            .catch((err) => {
-              console.log(`[rex-spider-chatgpt] Unexpected error during sync:`, err)
-              this.syncing = false
-              this.endRun()
-              this.dispatchCompletionEvent(0)
-              resolve(true) // Error - fall back to DOM scraping...
-            })
-        })
-      })
-    })
-  }
-
-  private fetchLastUpdate(conversationId: string): Promise<number | null> {
-    return new Promise((resolve) => {
-      const key = `chatgpt-${conversationId}-last-update`
-      rexCorePlugin.handleMessage({ messageType: 'fetchValue', key }, this, (response) => {
-        if (typeof response === 'number') {
-          resolve(response)
-        } else {
-          resolve(null)
-        }
-      })
-    })
-  }
-
-  private storeLastUpdate(conversationId: string, listingUpdateMs: number): Promise<void> {
-    return new Promise((resolve) => {
-      const key = `chatgpt-${conversationId}-last-update`
-      rexCorePlugin.handleMessage(
-        { messageType: 'storeValue', key, value: listingUpdateMs },
-        this,
-        () => resolve()
-      )
-    })
-  }
-
-  private updateTimeMs(raw: unknown): number | null {
-    if (typeof raw === 'number') {
-      // /backend-api/conversations uses Unix epoch seconds (fractional allowed).
-      return raw * 1000
-    }
-    if (typeof raw === 'string') {
-      // /backend-api/gizmos/{id}/conversations uses ISO-8601 strings.
-      const parsed = Date.parse(raw)
-      if (!Number.isNaN(parsed)) {
-        return parsed
-      }
-    }
-    return null
-  }
-
-  private async pagingCutoff(): Promise<number> {
-    let installTime: number | null = null
-    try {
-      const response = await chrome.runtime.sendMessage({ messageType: 'getInstallTime' })
-      if (typeof response === 'number') {
-        installTime = response
-      }
-    } catch (err) {
-      console.log(`[rex-spider-chatgpt] getInstallTime unavailable:`, err)
-    }
-    // Anchor the lookback window at install time so that as the study runs, the
-    // pre-study buffer stays fixed at (install - lookback_days). Conversations
-    // updated between install and now are always included. Fall back to
-    // (now - lookback_days) when install time isn't known (e.g. rex-dev-extension).
-    const anchor = installTime !== null ? installTime : Date.now()
-    const cutoff = anchor - this.lookbackDays * 86_400_000
-    console.log(`[rex-spider-chatgpt] Paging cutoff: ${new Date(cutoff).toISOString()} (lookbackDays=${this.lookbackDays}, installTime=${installTime})`)
-    return cutoff
-  }
-
-  private async pageIndex(accessToken: string, cutoff: number): Promise<{ toCrawl: CrawlTarget[], firstPageFailed: boolean, endReason: 'date-floor' | 'exhausted' | null }> {
-    const pageSize = 28
-    const toCrawl: CrawlTarget[] = []
-
-    let offset = 0
-    let pageIndex = 0
-    let stop = false
-
-    // Why paging ended: 'date-floor' (crossed the cutoff) or 'exhausted'
-    // (no more items) both mean the whole account was enumerated. null means
-    // it ended early — maxIndexPages cap or a failed page — so completion of
-    // this run does NOT imply the account is fully collected.
-    let endReason: 'date-floor' | 'exhausted' | null = null
-
-    while (!stop && pageIndex < this.maxIndexPages) {
-      const indexUrl = `https://chatgpt.com/backend-api/conversations?offset=${offset}&limit=${pageSize}&order=updated&is_archived=false&is_starred=false`
-      console.log(`[rex-spider-chatgpt] Index page ${pageIndex} (offset=${offset}): ${indexUrl}`)
-
-      const response = await fetch(indexUrl, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      })
-
-      if (!response.ok) {
-        console.log(`[rex-spider-chatgpt] Index page ${pageIndex} failed (status ${response.status}).`)
-        if (pageIndex === 0) {
-          return { toCrawl: [], firstPageFailed: true, endReason: null }
-        }
-        break
-      }
-
-      const body = await response.json()
-      const items = body?.items ?? []
-
-      // Each fetched index page is progress: long paging phases (dozens of
-      // pages x sleep_delay_ms) must not trip the stuck-run watchdog.
-      this.noteProgress()
-
-      for (const item of items) {
-        const itemUpdateMs = this.updateTimeMs(item?.update_time)
-        if (itemUpdateMs === null) continue
-        if (itemUpdateMs >= cutoff) {
-          if (item.id !== undefined) {
-            const stored = await this.fetchLastUpdate(item.id)
-            if (!shouldCrawl(itemUpdateMs, stored)) {
-              console.log(`[rex-spider-chatgpt] Skipping ${item.id} — listing update_time (${itemUpdateMs}) not newer than stored (${stored})`)
-              continue
-            }
-            const fullUrl = `https://chatgpt.com/backend-api/conversation/${item.id}`
-            if (!toCrawl.some((t) => t.conversationId === item.id)) {
-              toCrawl.push({ url: fullUrl, listingUpdateMs: itemUpdateMs, conversationId: item.id })
-            }
-          }
-        } else {
-          stop = true
-          endReason = 'date-floor'
-          break
-        }
-      }
-
-      if (items.length < pageSize) {
-        if (endReason === null) {
-          endReason = 'exhausted'
-        }
-        break
-      }
-      offset += pageSize
-      pageIndex += 1
-      if (!stop && pageIndex < this.maxIndexPages) {
-        await new Promise((r) => self.setTimeout(r, this.sleepDelayMs))
-      }
-    }
-
-    return { toCrawl, firstPageFailed: false, endReason }
-  }
-
-  private async pageProjectIndex(
-    accessToken: string,
-    cutoff: number,
-    existingTargets: CrawlTarget[]
-  ): Promise<{ toCrawl: CrawlTarget[], partialFailure: boolean, complete: boolean }> {
-    const toCrawl: CrawlTarget[] = []
-
-    // False whenever any project (or the sidebar listing itself) was cut
-    // short — by a failed page or the maxIndexPages cap — meaning some
-    // project conversations may not have been enumerated this run.
-    let complete = true
-
-    try {
-      // Step 1: list projects via the gizmos sidebar.
-      // conversations_per_gizmo=0 so we don't waste payload — we page each project explicitly below.
-      // limit must be ≤20; the server returns 422 for higher values. Paginate via the response's
-      // `cursor` field for users with more than 20 projects.
-      const gizmoIds: string[] = []
-      let sidebarCursor: string | null = null
-      let sidebarPageIndex = 0
-
-      while (sidebarPageIndex === 0 || (sidebarCursor !== null && sidebarPageIndex < this.maxIndexPages)) {
-        const cursorQs:string = sidebarCursor === null ? '' : `&cursor=${encodeURIComponent(sidebarCursor)}`
-        const sidebarUrl:string = `https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=0&limit=20${cursorQs}`
-        console.log(`[rex-spider-chatgpt] Project sidebar page ${sidebarPageIndex}: ${sidebarUrl}`)
-
-        const sidebarResp:Response = await fetch(sidebarUrl, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        })
-
-        if (!sidebarResp.ok) {
-          console.log(`[rex-spider-chatgpt] Project sidebar page ${sidebarPageIndex} failed (status ${sidebarResp.status}).`)
-          // First-page failure is the only case that blocks enumeration. Later-page failures
-          // just stop pagination early and we use what we have so far.
-          if (sidebarPageIndex === 0) {
-            return { toCrawl, partialFailure: true, complete: false }
-          }
-          complete = false
-          break
-        }
-
-        const sidebarBody:any = await sidebarResp.json() // eslint-disable-line @typescript-eslint/no-explicit-any
-
-        this.noteProgress() // sidebar page fetched — reset the stuck-run watchdog clock
-
-        // The sidebar response nests the gizmo ID at items[].gizmo.gizmo.id. Fall back to
-        // items[].gizmo.id and items[].id so a future API reshape doesn't silently break us.
-        const sidebarItems = sidebarBody?.items ?? []
-        for (const entry of sidebarItems) {
-          const candidate = entry?.gizmo?.gizmo?.id ?? entry?.gizmo?.id ?? entry?.id
-          if (typeof candidate === 'string' && candidate.startsWith('g-p-')) {
-            gizmoIds.push(candidate)
-          }
-        }
-
-        const nextCursor:string|null = sidebarBody?.cursor
-        sidebarCursor = typeof nextCursor === 'string' && nextCursor.length > 0 ? nextCursor : null
-        sidebarPageIndex += 1
-
-        if (sidebarCursor !== null && sidebarPageIndex < this.maxIndexPages) {
-          await new Promise((r) => self.setTimeout(r, this.sleepDelayMs))
-        }
-      }
-      if (sidebarCursor !== null) {
-        complete = false // maxIndexPages cap hit with more sidebar pages remaining
-      }
-      console.log(`[rex-spider-chatgpt] Projects found: ${gizmoIds.length}`)
-
-      // Step 2: for each project, page its conversations with cursor pagination.
-      for (const gizmoId of gizmoIds) {
-        // Initial cursor is '0' to match the captured Network tab request. The cursor field is
-        // opaque — on subsequent requests we pass through whatever the API returned verbatim.
-        let cursor: string | null = '0'
-        let projectPageIndex = 0
-        let stop = false
-
-        while (!stop && cursor !== null && projectPageIndex < this.maxIndexPages) {
-          const cursorQs = encodeURIComponent(cursor)
-          const indexUrl = `https://chatgpt.com/backend-api/gizmos/${gizmoId}/conversations?cursor=${cursorQs}`
-          console.log(`[rex-spider-chatgpt] Project ${gizmoId} page ${projectPageIndex}: ${indexUrl}`)
-
-          const response = await fetch(indexUrl, {
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-          })
-
-          if (!response.ok) {
-            console.log(`[rex-spider-chatgpt] Project ${gizmoId} page ${projectPageIndex} failed (status ${response.status}).`)
-            complete = false
-            break
-          }
-
-          const body = await response.json()
-          const items = body?.items ?? []
-
-          this.noteProgress() // project page fetched — reset the stuck-run watchdog clock
-
-          for (const item of items) {
-            const itemUpdateMs = this.updateTimeMs(item?.update_time)
-            if (itemUpdateMs === null) continue
-            if (itemUpdateMs >= cutoff) {
-              if (item.id !== undefined) {
-                const stored = await this.fetchLastUpdate(item.id)
-                if (!shouldCrawl(itemUpdateMs, stored)) {
-                  console.log(`[rex-spider-chatgpt] Skipping project convo ${item.id} — listing update_time (${itemUpdateMs}) not newer than stored (${stored})`)
-                  continue
-                }
-                const fullUrl = `https://chatgpt.com/backend-api/conversation/${item.id}`
-                const alreadyQueued =
-                  existingTargets.some((t) => t.conversationId === item.id) ||
-                  toCrawl.some((t) => t.conversationId === item.id)
-                if (!alreadyQueued) {
-                  toCrawl.push({ url: fullUrl, listingUpdateMs: itemUpdateMs, conversationId: item.id })
-                }
-              }
-            } else {
-              stop = true
-              break
-            }
-          }
-
-          const nextCursor = body?.cursor
-          cursor = typeof nextCursor === 'string' && nextCursor.length > 0 ? nextCursor : null
-          projectPageIndex += 1
-
-          if (!stop && cursor !== null && projectPageIndex < this.maxIndexPages) {
-            await new Promise((r) => self.setTimeout(r, this.sleepDelayMs))
-          }
-        }
-
-        if (!stop && cursor !== null) {
-          complete = false // maxIndexPages cap hit with more project pages remaining
-        }
-      }
-
-      return { toCrawl, partialFailure: false, complete }
-    } catch (err) {
-      console.log(`[rex-spider-chatgpt] pageProjectIndex threw unexpectedly:`, err)
-      return { toCrawl, partialFailure: true, complete: false }
-    }
+  allowedUrls():string[] {
+    return [
+      '^https://chatgpt.com/$',
+      '^https://chatgpt.com/backend-api/conversations\\?.*',
+      '^https://chatgpt.com/backend-api/conversation/.*',
+      '^https://chatgpt.com/backend-api/gizmos/.*/conversations\\?.*',
+      '^https://chatgpt.com/backend-api/gizmos/snorlax/sidebar\\?.*',
+    ]
   }
 
   parseConversation(conversationJson: any): Promise<any | null> { // eslint-disable-line @typescript-eslint/no-explicit-any
-    return new Promise((resolve) => {
-      console.log(`[rex-spider-chatgpt] parseConversation:`)
-      console.log(conversationJson)
-
+    return new Promise((resolve, reject) => {
       const firstWhen = new Date(conversationJson['create_time'] * 1000)
 
       let latestDate = firstWhen
@@ -671,13 +83,29 @@ export class REXChatGPTSpider extends REXSpider {
         metadata: conversationJson // TODO: Pull out so only populated on debug=true
       }
 
-      const convoIds = ['client-created-root']
+      const turnIds:string[] = []
 
-      while (convoIds.length > 0) {
-        const convoId = convoIds.shift()
+      for (const mappingId of Object.keys(conversationJson['mapping'])) {
+        const turn = conversationJson['mapping'][mappingId]
 
-        if (convoId !== undefined) {
-          const turnJson = conversationJson['mapping'][convoId]
+        if (turn !== undefined) {
+          if (turn.parent === null) {
+            turnIds.push(turn.id)
+          }
+        }
+      }
+
+      if (turnIds.includes('client-created-root' )) {
+        conversation.user_agent = 'Browser'
+      } else {
+        conversation.user_agent = 'App (Mobile or Desktop)'
+      }
+
+      while (turnIds.length > 0) {
+        const turnId = turnIds.shift()
+
+        if (turnId !== undefined) {
+          const turnJson = conversationJson['mapping'][turnId]
 
           if (turnJson !== undefined) {
             let createTime = firstWhenString
@@ -686,9 +114,11 @@ export class REXChatGPTSpider extends REXSpider {
               const messageCreateTime = turnJson.message.create_time
               if (messageCreateTime !== null && messageCreateTime !== undefined) {
                 createTime = new DateString(messageCreateTime)
+
                 const turnDate = new Date(messageCreateTime * 1000)
                 if (turnDate > latestDate) {
                   latestDate = turnDate
+
                   conversation.ended = createTime
                 }
               }
@@ -785,20 +215,24 @@ export class REXChatGPTSpider extends REXSpider {
               }
 
               const isHidden = turnJson.message.metadata?.is_visually_hidden_from_conversation === true
+
               if (!(isHidden && turn['content*'] === '')) {
                 conversation.turns.push(turn)
               }
             }
 
             for (const childId of turnJson.children) {
-              convoIds.push(childId)
+              turnIds.push(childId)
             }
-
+          } else {
+            reject(`Invalid turn structure for ${conversation.identifier}. Offending turn: ${turnId}.`)
+            
+            return
           }
-
         }
-
       }
+
+      conversation.ended = new DateString(latestDate)
 
       const payload: EventPayload = {
         name: 'rex-conversation',
@@ -807,6 +241,681 @@ export class REXChatGPTSpider extends REXSpider {
       }
 
       resolve(payload)
+    })
+  }
+
+  fetchConversationRecords(): Promise<REXSpiderCrawlInspection[]> {
+    return new Promise<REXSpiderCrawlInspection[]>((resolve, reject) => {
+      const inspectionRecords:REXSpiderCrawlInspection[] = []
+
+      const fetchPage = (offset:number) => {
+        const indexUrl = `https://chatgpt.com/backend-api/conversations?offset=${offset}&limit=${this.pageSize}&order=updated&is_archived=false&is_starred=false`
+
+        fetch(indexUrl, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${this.accessToken}` }
+        })
+          .then((response) => {
+            if (!response.ok) {
+              console.log(`[rex-spider-chatgpt] Index offset ${offset} failed (status ${response.status}).`)
+
+              reject(`Index offset ${offset} failed (status ${response.status})`)
+            } else {
+              response.json().then((body) => {
+                if (body.items !== undefined) {
+                  const toProcess:any = [] // eslint-disable-line @typescript-eslint/no-explicit-any
+
+                  if (check.array(body.items) && body.items.length === 0) {
+                    resolve(inspectionRecords)
+                  } else {
+                    toProcess.push(...body.items)
+
+                    let inCrawlWindowCount = 0
+
+                    const processNextItem = () => {
+                      if (toProcess.length == 0) {
+                        if (inCrawlWindowCount > 0) {
+                          setTimeout(() => {
+                            fetchPage(offset + this.pageSize)
+                          }, this.fetchCrawlDelay())
+                        } else {
+                          resolve(inspectionRecords)
+                        }
+                      } else {
+                        const item = toProcess.pop()
+
+                        if (item !== undefined) {
+                          if (item['update_time'] !== undefined) {
+                            try {
+                              const updated = new DateString(item['update_time'])
+                              const created = new DateString(item['create_time'])
+
+                              const title:string = item.title
+
+                              if (item.id !== undefined) {
+                                this.crawlWindowContains(updated.timestamp())
+                                  .then((isContained:boolean) => {
+                                    if (isContained) {
+                                      inCrawlWindowCount += 1
+
+                                      this.checkIfAlreadyTransmitted(item.id, updated).then((transmitted:boolean) => {
+                                        if (transmitted === false) {
+                                          inspectionRecords.push({
+                                              id: item.id,
+                                              refresh: true,
+                                              title,
+                                              lookupDate: updated,
+                                              startDate: created
+                                          })
+                                        } else {
+                                          inspectionRecords.push({
+                                              id: item.id,
+                                              title,
+                                              refresh: false,
+                                              lookupDate: updated,
+                                              startDate: created
+                                          })
+                                        }
+
+                                        processNextItem()
+                                      })
+                                    } else {
+                                      processNextItem()
+                                    }
+                                  })
+                              } else {
+                                processNextItem()
+                              }
+                            } catch(err) {
+                              console.log(`[rex-spider-chatgpt] Unable to parse update_time ${item['update_time']} (${typeof item['update_time']}): ${err}`)
+
+                              reject(`Unable to parse update_time ${item['update_time']} (${typeof item['update_time']}): ${err}`)
+                            }
+                          } else {
+                            processNextItem()
+                          }
+                        }
+                      }
+                    }
+
+                    processNextItem()
+                  }
+                } else {
+                  console.log(`[rex-spider-chatgpt] Received invalid body.items: ${body.items} (${typeof body.items}).`)
+
+                  reject(`Received invalid body.items: ${body.items} (${typeof body.items}).`)
+                }
+              })
+              .catch((err) => {
+                console.log(`[spider-chat-gpt] Unable to parse body into JSON at ${indexUrl}: ${err}`)
+
+                reject(`Unable to parse body into JSON at ${indexUrl}: ${err}`)
+              })
+            }
+          })
+          .catch((err) => {
+            console.log(`[spider-chat-gpt] Error fetching ${indexUrl}: ${err}`)
+
+            reject(`Error fetching ${indexUrl}: ${err}`)
+          })
+      }
+
+      fetchPage(0)
+    })
+  }
+
+  fetchConversationRecordsForProject(projectId: string) : Promise<REXSpiderCrawlInspection[] | null> {
+    return new Promise<REXSpiderCrawlInspection[] | null>((resolve, reject) => {
+      const inspectionRecords:REXSpiderCrawlInspection[] = []
+
+      const fetchProjectConversationsForPage = (cursorToken: string | null = '0') => {
+        if (cursorToken === undefined || cursorToken === null) { // Finished?
+          resolve(inspectionRecords)
+        } else {
+          const projectUrlBase:string = `https://chatgpt.com/backend-api/gizmos/${projectId}/conversations`
+
+          const parsedUrl = URL.parse(projectUrlBase)
+
+          if (parsedUrl !== null) {
+            parsedUrl.searchParams.set('cursor', cursorToken)
+            
+            fetch(parsedUrl.href, {
+              method: 'GET',
+              headers: { 'Authorization': `Bearer ${this.accessToken}` }
+            })
+              .then((response) => {
+                if (response.ok) {
+                  response.json()
+                    .then((body) => {
+                      if (check.array(body.items)) {
+                        if (body.items.length === 0) {
+                          resolve(inspectionRecords)
+                        } else {
+                          const toCheck:any[] = [] // eslint-disable-line @typescript-eslint/no-explicit-any
+                          toCheck.push(...body.items)
+
+                          const checkNextItem = () => {
+                            if (toCheck.length == 0) {
+                              setTimeout(() => {
+                                fetchProjectConversationsForPage(body.cursor)
+                              }, this.fetchCrawlDelay())
+                            } else {
+                              const item = toCheck.pop()
+
+                              if (check.string(item.id) && inspectionRecords.includes(item.id) === false) {
+                                const updated = Date.parse(item.update_time)
+                                const started = Date.parse(item.create_time)
+                                const title:string = item.title
+
+                                if (Number.isNaN(updated)) {
+                                  console.log(`[rex-spider-chatgpt] Received an invalid timestamp for date: ${item.update_time}.`)
+
+                                  checkNextItem()
+                                } else {
+                                  this.crawlWindowContains(updated).then((include) => {
+                                    if (include) {
+                                      const updatedString = new DateString(updated / 1000)
+                                      const startedString = new DateString(started / 1000)
+
+                                      this.checkIfAlreadyTransmitted(item.id, updatedString).then((transmitted:boolean) => {
+                                        if (transmitted === false) {
+                                          inspectionRecords.push({
+                                            id: item.id,
+                                            refresh: true,
+                                            lookupDate: updatedString,
+                                            startDate: startedString,
+                                            title
+                                          })
+                                        } else {
+                                          inspectionRecords.push({
+                                            id: item.id,
+                                            refresh: false,
+                                            lookupDate: updatedString,
+                                            startDate: startedString,
+                                            title
+                                          })
+                                        }
+
+                                        checkNextItem()
+                                      })
+                                    } else {
+                                      checkNextItem()
+                                    }
+                                  })
+                                }
+                              } else {
+                                checkNextItem()
+                              }
+                            }
+                          }
+
+                          checkNextItem()                            
+                        }
+                      } else {
+                        console.log(`[rex-spider-chatgpt] Received invalid body.items: ${body.items} (${typeof body.items}).`)
+                        
+                        reject(`Received invalid body.items: ${body.items} (${typeof body.items}).`)
+                      }
+                    })
+                    .catch((err) => {
+                      console.log(`[rex-spider-chatgpt] Unable to parse JSON body: ${response.body}: ${err}.`)
+                      
+                      reject(`Unable to parse JSON body: ${response.body}: ${err}`)
+                    })
+                } else {
+                  console.log(`[rex-spider-chatgpt] Invalid HTTP return code: ${response.status} for ${parsedUrl.href}.`)
+                  
+                  reject(`Invalid HTTP return code: ${response.status} for ${parsedUrl.href}.`)
+                }
+              })
+              .catch((err) => {
+                console.log(`[rex-spider-chatgpt] Error encountered retrieving ${parsedUrl.href}: ${err}`)
+                
+                reject(`Error encountered retrieving ${parsedUrl.href}: ${err}`)
+              })
+          } else {
+              console.log(`[rex-spider-chatgpt] Unable to parse URL ${projectUrlBase}.`)
+              
+              reject(`Unable to parse URL ${projectUrlBase}.`)
+          }
+        }
+      }
+
+      setTimeout(() => {
+        fetchProjectConversationsForPage()
+      }, this.fetchCrawlDelay())
+    })
+  }
+
+  fetchProjectRecords(): Promise<REXSpiderCrawlInspection[]> {
+    return new Promise<REXSpiderCrawlInspection[]>((resolve, reject) => {
+      const conversationRecords: REXSpiderCrawlInspection[] = []
+
+      const fetchSidebarIds = (cursorToken: string | null = null) => {
+        const sidebarUrlBase:string = `https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=0&limit=${this.pageSize}`
+
+        const parsedUrl = URL.parse(sidebarUrlBase)
+
+        if (parsedUrl !== null) {
+          if (cursorToken !== null && parsedUrl !== null) {
+            parsedUrl.searchParams.set('cursor', cursorToken)
+          }
+
+          fetch(parsedUrl.href, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${this.accessToken}` }
+          })
+            .then((response) => {
+              if (response.ok) {
+                response.json()
+                  .then((body) => {
+                    if (body.items !== undefined) {
+                      const toCheck:any[] = [] // eslint-disable-line @typescript-eslint/no-explicit-any
+
+                      toCheck.push(...body.items)
+
+                      const checkNextProject = () => {
+                        if (toCheck.length === 0) {
+                          resolve(conversationRecords)
+                        } else {
+                          const item = toCheck.pop()
+
+                          try {
+                            const gizmoId = item.gizmo.gizmo.id
+
+                            if (check.string(gizmoId) && gizmoId.startsWith('g-p-')) {
+                              this.fetchConversationRecordsForProject(gizmoId)
+                                .then((projectRecords) => {
+                                  if (check.array(projectRecords)) {
+                                    for (const conversationRecord of projectRecords) {
+                                      if (conversationRecords.includes(conversationRecord) === false) {
+                                        conversationRecords.push(conversationRecord)
+                                      }
+                                    }
+                                  }
+
+                                  setTimeout(() => {
+                                    checkNextProject()
+                                  }, this.fetchCrawlDelay())
+                                })
+                                .catch((err) => {
+                                  console.log(`[rex-spider-gpt] Received error fetching conversations for project ID: ${gizmoId}: ${err}`)
+
+                                  setTimeout(() => {
+                                    checkNextProject()
+                                  }, this.fetchCrawlDelay())
+                                })
+                            } else {
+                              console.log(`[rex-spider-gpt] Received invalid project ID: ${gizmoId} (${typeof gizmoId})`)
+
+                              setTimeout(() => {
+                                checkNextProject()
+                              }, this.fetchCrawlDelay())
+                            }
+                          } catch (err) {
+                            console.log(`[rex-spider-gpt] Error encountered parsing item for project ID: ${err}`)
+
+                            setTimeout(() => {
+                              checkNextProject()
+                            }, this.fetchCrawlDelay())
+                          }
+                        }
+                      }
+
+                      checkNextProject()
+                    } else {
+                      console.log(`[rex-spider-chatgpt] Received invalid body.items: ${body.items} (${typeof body.items})`)
+                  
+                      reject(`Received invalid body.items: ${body.items} (${typeof body.items})`)
+                    }
+                  })
+                  .catch((err) => {
+                    console.log(`[rex-spider-chatgpt] Unable to parse JSON body: ${response.body}: ${err}`)
+                
+                    reject(`Unable to parse JSON body: ${response.body}: ${err}`)
+                  })
+              } else {
+                console.log(`[rex-spider-chatgpt] Invalid response ${response.status} for ${parsedUrl.href}`)
+            
+                reject(`Invalid response ${response.status} for ${parsedUrl.href}`)
+              }
+            })
+            .catch((err) => {
+              console.log(`[rex-spider-chatgpt] Error encountered fetching ${parsedUrl.href}: ${err}`)
+          
+              reject(`Error encountered fetching ${parsedUrl.href}: ${err}`)
+            })
+        } else {
+          console.log(`[rex-spider-chatgpt] Unable to parse URL from ${sidebarUrlBase}.`)
+      
+          reject(`Unable to parse URL from ${sidebarUrlBase}.`)
+        }
+      }
+
+      fetchSidebarIds()
+    })
+  }
+
+  doBackgroundCrawl():Promise<REXSpiderCrawlResult> {
+    return new Promise<REXSpiderCrawlResult>((resolve) => {
+      super.doBackgroundCrawl().then((crawlResult:REXSpiderCrawlResult) => {
+        const crawledIds: string[] = []
+
+        const homeUrl = 'https://chatgpt.com/'
+
+        let dispatched = 0
+
+        fetch(homeUrl)
+          .then((response: Response) => {
+            if (!response.ok) {
+              this.signalCrawlComplete(-1, crawledIds, `Homepage fetch failed (status ${response.status}).`)
+
+              crawlResult.issues.push({
+                  url: this.loginUrl(),
+                  message: `Unable to fetch ${homeUrl}. Status code = ${response.status}.`
+                })
+
+              resolve(crawlResult)
+            } else {
+              response.text().then((rawHtml) => {
+                const lines = rawHtml.match(/[^\r\n]+/g)
+
+                if (lines !== null) {
+                  for (const line of lines) {
+                    if (line.includes('"accessToken"')) {
+                      const startIndex = line.indexOf('"accessToken":"')
+
+                      if (startIndex !== -1) {
+                        const prefixStripped = line.substring(startIndex)
+
+                        const tokens = prefixStripped.split('"')
+
+                        if (tokens.length > 3) {
+                          this.accessToken = tokens[3]
+                        }
+                      }
+                    }
+                  }
+                }
+
+                if (this.accessToken === null) {
+                  this.signalCrawlComplete(-1, crawledIds, 'No access token — user is not logged in.')
+
+                  crawlResult.issues.push({
+                    url: this.loginUrl(),
+                    message: `User not logged in.`
+                  })
+
+                  resolve(crawlResult)
+                } else {
+                  const toCrawl:REXSpiderCrawlInspection[] = []
+
+                  const fetchNextConversation = () => {
+                    if (toCrawl.length === 0) {
+                      console.log(`[rex-spider-chatgpt] Conversations crawled successfully`)
+
+                      this.signalCrawlComplete(dispatched, crawledIds, `Conversations crawled successfully.`)
+
+                      resolve(crawlResult)
+                    } else {
+                      const convoRecord: REXSpiderCrawlInspection | undefined = toCrawl.pop()
+
+                      if (convoRecord !== undefined) {
+                        if (crawledIds.includes(convoRecord.id) === false) {
+                          crawledIds.push(convoRecord.id)
+                        }
+
+                        if (convoRecord.refresh) {
+                          if (this.justSummarize()) {
+                            this.checkIfAlreadyTransmitted(convoRecord.id, convoRecord.lookupDate).then((transmitted:boolean) => {
+                              if (transmitted === false) {
+                                const conversation: Conversation = {
+                                  turns: [],
+                                  platform: 'chatgpt',
+                                  identifier: convoRecord.id,
+                                  started: convoRecord.startDate,
+                                  ended: convoRecord.lookupDate,
+                                }
+
+                                const payload: EventPayload = {
+                                  name: 'rex-conversation',
+                                  'is_summary': true,
+                                  date: convoRecord.lookupDate.value?.epochMilliseconds,
+                                  ...conversation
+                                }
+
+                                dispatchEvent(payload)
+
+                                dispatched += 1
+
+                                this.logTransmitted(convoRecord.id, convoRecord.lookupDate).then(() => {
+                                  fetchNextConversation()
+                                })
+                              } else {
+                                fetchNextConversation()
+                              }
+                            })
+                          } else {
+                            const convoUrl = `https://chatgpt.com/backend-api/conversation/${convoRecord.id}`
+
+                            fetch(convoUrl, {
+                              method: 'GET',
+                              headers: {
+                                'Authorization': `Bearer ${this.accessToken}`
+                              }
+                            })
+                            .then((convoResponse: Response) => {
+                              if (convoResponse.ok) {
+                                convoResponse.json().then((result) => {
+                                  this.parseConversation(result).then((conversation) => {
+                                    if (conversation !== null) {
+                                      this.checkIfAlreadyTransmitted(convoRecord.id, convoRecord.lookupDate).then((transmitted:boolean) => {
+                                        if (transmitted === false) {
+                                          const payload: EventPayload = {
+                                            name: 'rex-conversation',
+                                            date: conversation.started.value.epochMilliseconds,
+                                            ...conversation
+                                          }
+
+                                          dispatchEvent(payload)
+
+                                          dispatched += 1
+
+                                          this.logTransmitted(convoRecord.id, convoRecord.lookupDate).then(() => {
+                                            setTimeout(() => {
+                                              fetchNextConversation()
+                                            }, this.fetchCrawlDelay())
+                                          })
+                                        } else {
+                                          setTimeout(() => {
+                                            fetchNextConversation()
+                                          }, this.fetchCrawlDelay())
+                                        }
+                                      })
+                                      .catch((err) => {
+                                        crawlResult.issues.push({
+                                          url: convoUrl,
+                                          message: `Error encountered checking prior conversation transmission: ${err}`
+                                        })
+
+                                        if (this.continueAfterError()) {
+                                          this.signalCrawlComplete(-1, crawledIds, `Error encountered checking prior conversation transmission: ${err}`, false)
+
+                                          setTimeout(() => {
+                                            fetchNextConversation()
+                                          }, this.fetchCrawlDelay())
+                                        } else {
+                                          this.signalCrawlComplete(-1, crawledIds, `Error encountered checking prior conversation transmission: ${err}`)
+
+                                          resolve(crawlResult)
+                                        }
+                                      })
+                                    } else {
+                                      setTimeout(() => {
+                                        fetchNextConversation()
+                                      }, this.fetchCrawlDelay())
+                                    }
+                                  }).catch((err) => {
+                                    crawlResult.issues.push({
+                                      url: convoUrl,
+                                      message: `Error encountered parsing conversation: ${err}`
+                                    })
+
+                                    if (this.continueAfterError()) {
+                                      this.signalCrawlComplete(-1, crawledIds, `Error encountered parsing conversation: ${err}`, false)
+
+                                      setTimeout(() => {
+                                        fetchNextConversation()
+                                      }, this.fetchCrawlDelay())
+                                    } else {
+                                      this.signalCrawlComplete(-1, crawledIds, `Error encountered parsing conversation: ${err}`)
+
+                                      resolve(crawlResult)
+                                    }
+                                  })
+                                })
+                                .catch((err) => {
+                                  crawlResult.issues.push({
+                                    url: convoUrl,
+                                    message: `Unable to parse conversation JSON: ${err}.`
+                                  })
+
+                                  if (this.continueAfterError()) {
+                                    this.signalCrawlComplete(-1, crawledIds, `Unable to parse conversation list JSON: ${err}.`, false)
+
+                                    setTimeout(() => {
+                                      fetchNextConversation()
+                                    }, this.fetchCrawlDelay())
+                                  } else {
+                                    this.signalCrawlComplete(-1, crawledIds, `Unable to parse conversation list JSON: ${err}.`)
+
+                                    resolve(crawlResult)
+                                  }
+                                })
+                              } else {
+                                crawlResult.issues.push({
+                                  url: convoUrl,
+                                  message: `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`
+                                })
+
+                                if (this.continueAfterError()) {
+                                  this.signalCrawlComplete(-1, crawledIds, `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`, false)
+
+                                  setTimeout(() => {
+                                    fetchNextConversation()
+                                  }, this.fetchCrawlDelay())
+                                } else {
+                                  this.signalCrawlComplete(-1, crawledIds, `Unable to fetch ${convoUrl}. Status code = ${convoResponse.status}.`)
+
+                                  resolve(crawlResult)
+                                }
+                              }
+                            })
+                            .catch((err) => {
+                              crawlResult.issues.push({
+                                url: convoUrl,
+                                message: `Error retrieving conversation: ${err}.`
+                              })
+
+                              if (this.continueAfterError()) {
+                                this.signalCrawlComplete(-1, crawledIds, `Error retrieving conversation: ${err}.`, false)
+
+                                setTimeout(() => {
+                                  fetchNextConversation()
+                                }, this.fetchCrawlDelay())
+                              } else {
+                                this.signalCrawlComplete(-1, crawledIds, `Error retrieving conversation: ${err}.`)
+
+                                resolve(crawlResult)
+                              }
+                            })
+                          }
+                        } else {
+                          fetchNextConversation()
+                        }
+                      }
+                    }
+                  }
+
+                  setTimeout(() => {
+                    this.fetchConversationRecords()
+                      .then((convoIds:REXSpiderCrawlInspection[]) => {
+                        for (const convoId of convoIds) {
+                          if (toCrawl.includes(convoId) === false) {
+                            toCrawl.push(convoId)
+                          }
+                        }
+
+                        setTimeout(() => {
+                          this.fetchProjectRecords()
+                            .then((projectRecords:REXSpiderCrawlInspection[]) => {
+                              for (const convoRecord of projectRecords) {
+                                if (toCrawl.includes(convoRecord) === false) {
+                                  toCrawl.push(convoRecord)
+                                }
+                              }
+
+                              fetchNextConversation()
+                            })
+                            .catch((err) => {
+                              crawlResult.issues.push({
+                                  url: this.loginUrl(),
+                                  message: `Unable to fetch project URLs: ${err}.`
+                              })
+
+                              if (this.continueAfterError()) {
+                                this.signalCrawlComplete(-1, crawledIds, `Unable to fetch project URLs: ${err}.`, false)
+
+                                setTimeout(() => {
+                                  fetchNextConversation()
+                                }, this.fetchCrawlDelay())
+                              } else {
+                                this.signalCrawlComplete(-1, crawledIds, `Unable to fetch project URLs: ${err}.`)
+                                
+                                resolve(crawlResult)
+                              }
+                            })
+                        }, this.fetchCrawlDelay())
+                      })
+                      .catch((err) => {
+                        this.signalCrawlComplete(-1, crawledIds, `Unable to fetch conversation IDs: ${err}.`)
+
+                        crawlResult.issues.push({
+                          url: this.loginUrl(),
+                          message: `Unable to fetch conversation Ids: ${err}.`
+                        })
+
+                        resolve(crawlResult)
+                      })
+                  }, this.fetchCrawlDelay())
+                }
+              })
+              .catch((err) => {
+                this.signalCrawlComplete(-1, crawledIds, `Unable to read homepage body: ${err}.`)
+
+                crawlResult.issues.push({
+                  url: this.loginUrl(),
+                  message: `Unable to read homepage body: ${err}.`
+                })
+
+                resolve(crawlResult)
+              })
+            }
+          })
+          .catch((err) => {
+            console.log(`[rex-spider-chatgpt] Unexpected error during sync:`, err)
+            this.signalCrawlComplete(-1, crawledIds, `Error fetching conversations: ${err}.`)
+
+            crawlResult.issues.push({
+              url: this.loginUrl(),
+              message: `Error fetching conversations: ${err}.`
+            })
+
+            resolve(crawlResult)
+          })
+
+
+      })
     })
   }
 }

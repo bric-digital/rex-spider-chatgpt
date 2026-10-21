@@ -1,0 +1,8 @@
+{
+    "configuration_url": "config.json",
+    "ui": [{
+        "title": "REX Spider ChatGPT Module Testing Extension",
+        "identifier": "main",
+        "default": true
+    }]
+}

@@ -1,0 +1,137 @@
+{
+  "title": "Test received",
+  "create_time": 1788875080.390461,
+  "update_time": 1788875084.382055,
+  "moderation_results": [],
+  "plugin_ids": null,
+  "conversation_id": "6aa01147-1a2c-83e9-9eab-63d6f29d4dab",
+  "conversation_template_id": null,
+  "gizmo_id": null,
+  "gizmo_type": null,
+  "is_archived": false,
+  "is_starred": null,
+  "safe_urls": [
+    "https://www.openai.com",
+    "https://www.apple.com/",
+    "https://www.statefarm.com",
+    "https://www.progressive.com",
+    "https://github.com/openclaw/openclaw",
+    "https://docs.google.com/document/d/"
+  ],
+  "blocked_urls": [],
+  "default_model_slug": "auto",
+  "atlas_mode_enabled": null,
+  "conversation_origin": null,
+  "is_read_only": null,
+  "voice": null,
+  "async_status": null,
+  "disabled_tool_ids": [],
+  "is_temporary_chat": false,
+  "is_do_not_remember": false,
+  "memory_scope": "global_enabled",
+  "context_scopes": null,
+  "sugar_item_id": null,
+  "sugar_item_visible": false,
+  "pinned_time": null,
+  "is_study_mode": false,
+  "owner": null,
+  "mapping": {
+    "eb23de9b-128e-4bf3-9967-3964ddf4894c": {
+      "id": "eb23de9b-128e-4bf3-9967-3964ddf4894c",
+      "message": null,
+      "parent": null,
+      "children": [
+        "9f83d8a8-8500-4d9c-8b2e-068270086677"
+      ]
+    },
+    "9f83d8a8-8500-4d9c-8b2e-068270086677": {
+      "id": "9f83d8a8-8500-4d9c-8b2e-068270086677",
+      "message": {
+        "id": "9f83d8a8-8500-4d9c-8b2e-068270086677",
+        "author": {
+          "role": "user",
+          "name": null,
+          "metadata": {}
+        },
+        "create_time": 1788875081.30425,
+        "update_time": 1788875084.337772,
+        "content": {
+          "content_type": "text",
+          "parts": [
+            "test 3"
+          ]
+        },
+        "status": "finished_successfully",
+        "end_turn": null,
+        "weight": 1,
+        "metadata": {
+          "triggered_by_system_hint_suggestion": false,
+          "dictation": false,
+          "request_id": "557a143b-b548-4b9c-978a-23bdc8e415fd",
+          "message_source": null,
+          "turn_exchange_id": "ceea1ebc-e070-4275-aa10-771086c97591",
+          "working_turn_id": "ceea1ebc-e070-4275-aa10-771086c97591",
+          "can_save": false
+        },
+        "recipient": "all",
+        "channel": null
+      },
+      "parent": "eb23de9b-128e-4bf3-9967-3964ddf4894c",
+      "children": [
+        "29dd922e-56f0-45a9-9966-db4b221268a4"
+      ]
+    },
+    "29dd922e-56f0-45a9-9966-db4b221268a4": {
+      "id": "29dd922e-56f0-45a9-9966-db4b221268a4",
+      "message": {
+        "id": "29dd922e-56f0-45a9-9966-db4b221268a4",
+        "author": {
+          "role": "assistant",
+          "name": null,
+          "metadata": {}
+        },
+        "create_time": 1788875081.871329,
+        "update_time": 1788875084.226604,
+        "content": {
+          "content_type": "text",
+          "parts": [
+            "Test 3 received."
+          ]
+        },
+        "status": "finished_successfully",
+        "end_turn": true,
+        "weight": 1,
+        "metadata": {
+          "finish_details": {
+            "type": "stop",
+            "stop_tokens": [
+              200002
+            ]
+          },
+          "is_complete": true,
+          "citations": [],
+          "content_references": [],
+          "resolved_model_slug": "gpt-5-6",
+          "search_result_groups": [],
+          "cot_version": "v5",
+          "conversation_followup_suggestions_eligible": true,
+          "request_id": "557a143b-b548-4b9c-978a-23bdc8e415fd",
+          "message_type": "next",
+          "turn_exchange_id": "ceea1ebc-e070-4275-aa10-771086c97591",
+          "working_turn_id": "ceea1ebc-e070-4275-aa10-771086c97591",
+          "model_slug": "gpt-5-6",
+          "default_model_slug": "auto",
+          "can_save": true,
+          "parent_id": "04cbadcc-f35e-49f9-9747-bc19dab7cb8a",
+          "model_switcher_deny": []
+        },
+        "recipient": "all",
+        "channel": "final"
+      },
+      "parent": "9f83d8a8-8500-4d9c-8b2e-068270086677",
+      "children": []
+    }
+  },
+  "current_node": "29dd922e-56f0-45a9-9966-db4b221268a4",
+  "context_truncation_continuation": null
+}
